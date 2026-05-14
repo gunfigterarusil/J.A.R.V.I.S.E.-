@@ -943,3 +943,47 @@ google-generativeai # Gemini
 
 Minimum hardware: any PC with 4 GB RAM runs the full cognitive runtime without an LLM.  
 With local LLM: 8 GB RAM for 7B models, 16 GB for 13B+.
+
+
+---
+
+## V8.1 — Desktop Settings Center + Natural Action Router
+
+V8.1 adds a native **Settings Center** to the desktop app and expands natural language control.
+
+Start the desktop app:
+
+```bash
+python main.py --desktop
+```
+
+Open **Settings Center** from the right-side controls to edit `.env` settings for:
+
+- LLM providers;
+- voice STT/TTS;
+- Piper and pyttsx3;
+- screen OCR;
+- safe PC actions;
+- sleep/consolidation;
+- emotion/monologue;
+- self/world model;
+- web dashboard/API.
+
+Natural phrases now work from chat, voice and desktop, not only slash commands:
+
+```text
+прочитай екран
+запусти сон
+покажи файли .
+прочитай файл README.md
+знайди error в .
+запиши в notes/test.txt :: hello
+запусти python --version
+постав safety 4
+схвали p123
+виправ помилки в .
+```
+
+All external actions still pass through the V7 safety layer and workspace sandbox.
+
+Repair requests now start a safe diagnostics pass inside `ACTION_WORKSPACE_PATH`; automatic project-wide rewrites are intentionally not silent.

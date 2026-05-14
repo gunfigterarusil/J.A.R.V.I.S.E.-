@@ -11,6 +11,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
+from interfaces.desktop.settings_window import SettingsWindow
 from pathlib import Path
 from typing import Any, Dict
 
@@ -100,6 +101,7 @@ class DesktopApp:
         ttk.Button(right, text="Read screen (/see)", command=self.read_screen).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Sleep / consolidate", command=self.sleep_cycle).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Action status", command=self.action_status).pack(fill=tk.X, pady=3)
+        ttk.Button(right, text="Settings Center", command=self.open_settings).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Safety L1", command=lambda: self.set_safety(1)).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Safety L4 file-write", command=lambda: self.set_safety(4)).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Safety L5 shell", command=lambda: self.set_safety(5)).pack(fill=tk.X, pady=3)
@@ -111,6 +113,10 @@ class DesktopApp:
             "покажи файли .",
             "створи папку notes",
             "запусти python --version",
+            "прочитай екран",
+            "запусти сон",
+            "покажи налаштування",
+            "виправ помилки в .",
         ]
         for text in examples:
             ttk.Button(right, text=text, command=lambda t=text: self._prefill(t)).pack(fill=tk.X, pady=2)
@@ -246,6 +252,24 @@ class DesktopApp:
 
     def action_status(self) -> None:
         self.emit("action_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def open_settings(self) -> None:
+        SettingsWindow(self.root, on_saved=self._settings_saved)
+
+    def _settings_saved(self, updates: Dict[str, str]) -> None:
+        # Apply settings that can safely change live. Deeper module settings are loaded on restart.
+        try:
+            actions = getattr(self.kernel.config, "actions", None)
+            if actions is not None:
+                if "ACTION_WORKSPACE_PATH" in updates:
+                    actions.workspace_path = updates["ACTION_WORKSPACE_PATH"]
+                if "ACTION_ALLOW_SHELL" in updates:
+                    actions.allow_shell = updates["ACTION_ALLOW_SHELL"].lower() == "true"
+                if "ACTIONS_V7_ENABLED" in updates:
+                    actions.enabled = updates["ACTIONS_V7_ENABLED"].lower() == "true"
+            self._append("system", "Settings saved. Restart JAV for all modules to reload them; some action settings were applied live.")
+        except Exception as exc:
+            self._append("system", f"Settings saved, but live apply failed: {exc}")
 
     def set_safety(self, level: int) -> None:
         try:

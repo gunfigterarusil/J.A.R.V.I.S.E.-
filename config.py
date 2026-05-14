@@ -173,6 +173,19 @@ class WorldModelConfig:
 
 
 
+
+
+@dataclass
+class NaturalActionConfig:
+    """V8.1 natural-language action routing settings.
+
+    When enabled, ordinary chat/voice phrases can trigger the same safe actions
+    as slash commands. They still pass through the V7 safety firewall.
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("NATURAL_ACTIONS_ENABLED", "true").lower() == "true")
+    require_explicit_verb: bool = field(default_factory=lambda: os.environ.get("NATURAL_ACTIONS_REQUIRE_EXPLICIT_VERB", "true").lower() == "true")
+    repair_agent_enabled: bool = field(default_factory=lambda: os.environ.get("REPAIR_AGENT_ENABLED", "true").lower() == "true")
+
 @dataclass
 class ActionConfig:
     """V7 safe PC automation settings.
@@ -285,6 +298,7 @@ class KernelConfig:
     # V7 safe PC automation / tier4_actions
     # ------------------------------------------------------------------
     actions: ActionConfig = field(default_factory=ActionConfig)
+    natural_actions: NaturalActionConfig = field(default_factory=NaturalActionConfig)
 
     # ------------------------------------------------------------------
     # Voice interface
