@@ -17,10 +17,14 @@ Emits events:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import math
+import sqlite3
 import time
 from collections import deque
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core import CognitiveModule, CognitiveEvent as Event, Priority
@@ -77,6 +81,15 @@ class MemoryManager:
         self._archive_decayed = True
         self._semantic_autostore = True
         self._episodic_archive: list[Dict[str, Any]] = []
+        # V9.2 durable memory index. SQLite is standard-library only, so the
+        # agent can remain portable. The vector index uses deterministic hashed
+        # lexical embeddings as a local fallback; external embedding models can
+        # be added later without changing the event API.
+        self._sqlite_enabled = True
+        self._vector_enabled = True
+        self._vector_dimensions = 256
+        self._db_path: Optional[Path] = None
+        self._db: Optional[sqlite3.Connection] = None
 
     def configure(
         self,
@@ -86,6 +99,9 @@ class MemoryManager:
         episodic_max_items: int | None = None,
         archive_decayed: bool | None = None,
         semantic_autostore: bool | None = None,
+        sqlite_enabled: bool | None = None,
+        vector_enabled: bool | None = None,
+        vector_dimensions: int | None = None,
     ) -> None:
         if stm_lifetime_seconds is not None:
             self._stm_lifetime_seconds = max(5.0, float(stm_lifetime_seconds))
@@ -97,6 +113,59 @@ class MemoryManager:
             self._archive_decayed = bool(archive_decayed)
         if semantic_autostore is not None:
             self._semantic_autostore = bool(semantic_autostore)
+        if sqlite_enabled is not None:
+            self._sqlite_enabled = bool(sqlite_enabled)
+        if vector_enabled is not None:
+            self._vector_enabled = bool(vector_enabled)
+        if vector_dimensions is not None:
+            self._vector_dimensions = max(64, min(2048, int(vector_dimensions)))
+
+    def initialize_sqlite(self, base_dir: str | Path) -> None:
+        if not self._sqlite_enabled:
+            return
+        base = Path(base_dir).expanduser()
+        base.mkdir(parents=True, exist_ok=True)
+        self._db_path = base / "longterm_memory.sqlite3"
+        self._db = sqlite3.connect(str(self._db_path))
+        self._db.row_factory = sqlite3.Row
+        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db.execute("PRAGMA synchronous=NORMAL")
+        self._db.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS memories (
+                id TEXT PRIMARY KEY,
+                memory_type TEXT NOT NULL,
+                text TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                importance REAL DEFAULT 0.5,
+                timestamp REAL NOT NULL,
+                source TEXT DEFAULT '',
+                vector_json TEXT DEFAULT '',
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memories_type_time ON memories(memory_type, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_memories_time ON memories(timestamp DESC);
+            CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+                id UNINDEXED, text, memory_type UNINDEXED, source UNINDEXED
+            );
+            CREATE TABLE IF NOT EXISTS semantic_triples (
+                id TEXT PRIMARY KEY,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                confidence REAL DEFAULT 1.0,
+                timestamp REAL NOT NULL,
+                UNIQUE(subject, predicate, object)
+            );
+            """
+        )
+        self._db.commit()
+
+    def close(self) -> None:
+        if self._db is not None:
+            self._db.commit()
+            self._db.close()
+            self._db = None
 
     # STM Operations --------------------------------------------------------
     def stm_push(self, item: Dict[str, Any]) -> None:
@@ -145,6 +214,7 @@ class MemoryManager:
             "text_index": _memory_to_text(experience)[:4000],
         }
         self._episodic.append(entry)
+        self._index_memory_sqlite(entry["id"], "episodic", entry["text_index"], entry, entry["importance"], entry["timestamp"], str(experience.get("type", "")))
         self._compact_episodic_if_needed()
         self._store_count += 1
         if self._semantic_autostore:
@@ -238,6 +308,7 @@ class MemoryManager:
                 old["last_accessed"] = time.time()
                 return
         self._semantic.append(entry)
+        self._index_semantic_sqlite(entry)
         self._store_count += 1
 
     def semantic_query_similar(self, subject: str, threshold: float = SEMANTIC_SIMILARITY_THRESHOLD
@@ -253,6 +324,132 @@ class MemoryManager:
                 matches.append(entry)
         matches.sort(key=lambda x: x["similarity"], reverse=True)
         return matches
+
+    # Durable vector/SQLite memory -------------------------------------------
+    def _index_memory_sqlite(self, memory_id: str, memory_type: str, text: str, payload: Dict[str, Any], importance: float, timestamp: float, source: str = "") -> None:
+        if not self._sqlite_enabled or self._db is None or not text:
+            return
+        vector_json = json.dumps(_hash_embedding(text, self._vector_dimensions)) if self._vector_enabled else ""
+        payload_json = json.dumps(payload, ensure_ascii=False, default=str)
+        now = time.time()
+        self._db.execute(
+            """INSERT OR REPLACE INTO memories(id, memory_type, text, payload_json, importance, timestamp, source, vector_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (memory_id, memory_type, text[:16000], payload_json, float(importance), float(timestamp), source, vector_json, now),
+        )
+        self._db.execute("DELETE FROM memory_fts WHERE id = ?", (memory_id,))
+        self._db.execute("INSERT INTO memory_fts(id, text, memory_type, source) VALUES (?, ?, ?, ?)", (memory_id, text[:16000], memory_type, source))
+
+    def _index_semantic_sqlite(self, entry: Dict[str, Any]) -> None:
+        if not self._sqlite_enabled or self._db is None:
+            return
+        sid = "sem_" + hashlib.sha1(f"{entry.get('subject')}|{entry.get('predicate')}|{entry.get('object')}".encode("utf-8", errors="ignore")).hexdigest()
+        self._db.execute(
+            """INSERT OR REPLACE INTO semantic_triples(id, subject, predicate, object, confidence, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (sid, entry.get("subject", ""), entry.get("predicate", ""), entry.get("object", ""), float(entry.get("confidence", 1.0)), float(entry.get("timestamp", time.time()))),
+        )
+        text = f"{entry.get('subject', '')} {entry.get('predicate', '')} {entry.get('object', '')}"
+        self._index_memory_sqlite(sid, "semantic", text, entry, float(entry.get("confidence", 0.8)), float(entry.get("timestamp", time.time())), "semantic_triple")
+
+    def commit_index(self) -> None:
+        if self._db is not None:
+            self._db.commit()
+
+    def sqlite_counts(self) -> Dict[str, Any]:
+        if self._db is None:
+            return {"enabled": self._sqlite_enabled, "db_path": str(self._db_path or ""), "memories": 0, "semantic_triples": 0}
+        memories = self._db.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        triples = self._db.execute("SELECT COUNT(*) FROM semantic_triples").fetchone()[0]
+        return {"enabled": True, "db_path": str(self._db_path or ""), "memories": int(memories), "semantic_triples": int(triples), "vector_enabled": self._vector_enabled, "vector_dimensions": self._vector_dimensions}
+
+    def durable_search(self, query_text: str, top_k: int = 8, memory_type: str | None = None) -> List[Dict[str, Any]]:
+        if not query_text.strip():
+            return []
+        rows: List[sqlite3.Row] = []
+        if self._db is not None:
+            # FTS can fail on punctuation-heavy queries, so keep a safe fallback.
+            fts_query = _fts_query(query_text)
+            try:
+                sql = """SELECT m.* FROM memory_fts f JOIN memories m ON m.id = f.id
+                         WHERE memory_fts MATCH ?"""
+                params: list[Any] = [fts_query]
+                if memory_type:
+                    sql += " AND m.memory_type = ?"
+                    params.append(memory_type)
+                sql += " ORDER BY bm25(memory_fts) LIMIT ?"
+                params.append(max(top_k * 4, 20))
+                rows = list(self._db.execute(sql, params))
+            except Exception:
+                like = f"%{query_text[:80]}%"
+                sql = "SELECT * FROM memories WHERE text LIKE ?"
+                params = [like]
+                if memory_type:
+                    sql += " AND memory_type = ?"
+                    params.append(memory_type)
+                sql += " ORDER BY timestamp DESC LIMIT ?"
+                params.append(max(top_k * 4, 20))
+                rows = list(self._db.execute(sql, params))
+        # Include in-memory memories too, so unsaved current-session context is searchable.
+        candidates: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            candidates[str(row["id"])] = dict(row)
+        for mem in self._episodic[-min(len(self._episodic), 500):]:
+            mid = str(mem.get("id", f"live_{len(candidates)}"))
+            if mid not in candidates:
+                candidates[mid] = {
+                    "id": mid, "memory_type": "episodic", "text": mem.get("text_index") or _memory_to_text(mem.get("experience", {})),
+                    "payload_json": json.dumps(mem, ensure_ascii=False, default=str), "importance": mem.get("importance", 0.5),
+                    "timestamp": mem.get("timestamp", time.time()), "source": "live", "vector_json": "", "created_at": mem.get("created_at", time.time()),
+                }
+        q_vec = _hash_embedding(query_text, self._vector_dimensions) if self._vector_enabled else []
+        q_tokens = _tokenize(query_text)
+        scored: List[tuple[float, Dict[str, Any]]] = []
+        now = time.time()
+        for item in candidates.values():
+            text = str(item.get("text", ""))
+            token = _token_score(q_tokens, text)
+            vec_score = 0.0
+            if q_vec:
+                try:
+                    stored_vec = json.loads(item.get("vector_json") or "[]")
+                except Exception:
+                    stored_vec = []
+                if stored_vec:
+                    vec_score = _cosine(q_vec, stored_vec)
+                else:
+                    vec_score = _cosine(q_vec, _hash_embedding(text, self._vector_dimensions))
+            age = max(0.0, now - float(item.get("timestamp", now) or now))
+            recency = 1.0 / (1.0 + age / 86400.0)
+            importance = float(item.get("importance", 0.5) or 0.5)
+            score = vec_score * 1.35 + token * 1.0 + importance * 0.25 + recency * 0.15
+            if score > 0.08:
+                payload = {}
+                try:
+                    payload = json.loads(item.get("payload_json") or "{}")
+                except Exception:
+                    payload = {}
+                scored.append((score, {
+                    "id": item.get("id"), "type": item.get("memory_type"), "score": round(score, 4),
+                    "text": text[:1200], "importance": importance, "timestamp": item.get("timestamp"), "source": item.get("source", ""), "payload": payload,
+                }))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [item for _, item in scored[:top_k]]
+
+    def migrate_existing_to_sqlite(self) -> int:
+        if not self._sqlite_enabled or self._db is None:
+            return 0
+        count = 0
+        for mem in self._episodic:
+            text = mem.get("text_index") or _memory_to_text(mem.get("experience", {}))
+            if text:
+                self._index_memory_sqlite(str(mem.get("id")), "episodic", text, mem, float(mem.get("importance", 0.5)), float(mem.get("timestamp", time.time())), str((mem.get("experience") or {}).get("type", "")))
+                count += 1
+        for entry in self._semantic:
+            self._index_semantic_sqlite(entry)
+            count += 1
+        self.commit_index()
+        return count
 
     # Procedural Memory Operations ------------------------------------------
     def procedural_store(self, skill_name: str, steps: List[str],
@@ -371,6 +568,36 @@ def _token_score(tokens: set[str], text: str) -> float:
     return overlap / max(1, len(tokens))
 
 
+def _hash_embedding(text: str, dims: int = 256) -> List[float]:
+    vec = [0.0] * dims
+    tokens = list(_tokenize(text))
+    # Character n-grams improve recall for Ukrainian/Russian inflections and typos.
+    compact = " ".join(tokens)
+    grams = [compact[i:i+4] for i in range(max(0, len(compact) - 3)) if compact[i:i+4].strip()]
+    for token in tokens + grams[:400]:
+        h = hashlib.blake2b(token.encode("utf-8", errors="ignore"), digest_size=8).digest()
+        idx = int.from_bytes(h[:4], "little") % dims
+        sign = 1.0 if (h[4] & 1) == 0 else -1.0
+        weight = 1.0 + min(2.0, len(token) / 12.0)
+        vec[idx] += sign * weight
+    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+    return [round(v / norm, 6) for v in vec]
+
+
+def _cosine(a: List[float], b: List[float]) -> float:
+    if not a or not b:
+        return 0.0
+    n = min(len(a), len(b))
+    return sum(a[i] * b[i] for i in range(n)) / ((math.sqrt(sum(x*x for x in a[:n])) or 1.0) * (math.sqrt(sum(x*x for x in b[:n])) or 1.0))
+
+
+def _fts_query(text: str) -> str:
+    tokens = list(_tokenize(text))[:12]
+    if not tokens:
+        return '""'
+    return " OR ".join(f'"{t}"' for t in tokens)
+
+
 class MemoryModule(CognitiveModule):
     """
     Tier 1: Memory Module
@@ -400,10 +627,20 @@ class MemoryModule(CognitiveModule):
                 episodic_max_items=getattr(mem_cfg, "episodic_max_items", None),
                 archive_decayed=getattr(mem_cfg, "archive_decayed", None),
                 semantic_autostore=getattr(mem_cfg, "semantic_autostore", None),
+                sqlite_enabled=getattr(mem_cfg, "sqlite_enabled", None),
+                vector_enabled=getattr(mem_cfg, "vector_enabled", None),
+                vector_dimensions=getattr(mem_cfg, "vector_dimensions", None),
             )
             self._save_interval_seconds = float(getattr(mem_cfg, "save_interval_seconds", 60.0) or 60.0)
-        # Load persisted memory on startup
+        # Load persisted memory on startup, then initialize/migrate the durable index.
         self._load_persisted()
+        try:
+            self._manager.initialize_sqlite(kernel.persistence._base)
+            migrated = self._manager.migrate_existing_to_sqlite()
+            if migrated:
+                logger.info(f"[Memory] Indexed {migrated} existing memories into SQLite/vector store")
+        except Exception as exc:
+            logger.warning(f"[Memory] SQLite/vector memory unavailable: {exc}")
         # Register event consumers
         kernel.event_bus.register_consumer(
             self.module_id,
@@ -414,6 +651,7 @@ class MemoryModule(CognitiveModule):
                 "response_generated",
                 "memory_request",
                 "memory_status_requested",
+                "memory_search_requested",
                 "kernel_started",
             ],
         )
@@ -431,6 +669,8 @@ class MemoryModule(CognitiveModule):
             await self._handle_request(event.data)
         elif event.type == "memory_status_requested":
             await self._handle_status(event.data)
+        elif event.type == "memory_search_requested":
+            await self._handle_search(event.data)
 
     async def _handle_sensory(self, data: Dict[str, Any]) -> None:
         # Store in STM + WM
@@ -519,6 +759,11 @@ class MemoryModule(CognitiveModule):
         elif query_type == "social":
             uid = data.get("user_id")
             result = {"social_profile": self._manager.social_get_profile(uid) if uid else None}
+        elif query_type in {"vector", "search", "memory_search"}:
+            query_text = str(data.get("query_text") or data.get("subject") or data.get("query") or "")
+            result = {"query_text": query_text, "matches": self._manager.durable_search(query_text, top_k=int(data.get("top_k", 8)), memory_type=data.get("memory_type"))}
+            if data.get("request_id"):
+                result["request_id"] = data.get("request_id")
         elif query_type in {"dialogue_context", "relevant"}:
             query_text = str(data.get("query_text") or data.get("subject") or "")
             result = self._build_dialogue_context(query_text=query_text, top_k=int(data.get("top_k", 6)))
@@ -562,8 +807,10 @@ class MemoryModule(CognitiveModule):
         episodic = [m for _, m in scored[:top_k]]
 
         semantic_matches = []
+        durable_matches = []
         if query_text:
             semantic_matches = self._manager.semantic_query_similar(query_text, threshold=0.15)[:top_k]
+            durable_matches = self._manager.durable_search(query_text, top_k=top_k)
 
         return {
             "query_text": query_text,
@@ -571,6 +818,7 @@ class MemoryModule(CognitiveModule):
             "stm_recent": stm_recent,
             "episodic_recalls": episodic,
             "semantic_matches": semantic_matches,
+            "durable_matches": durable_matches,
             "social_profile": self._manager.social_get_profile("default_user"),
             "counts": self._manager.get_counts(),
         }
@@ -614,16 +862,47 @@ class MemoryModule(CognitiveModule):
             if entry["importance"] >= 0.7:
                 self._manager.episodic_store(entry["item"])
 
+    async def _handle_search(self, data: Dict[str, Any]) -> None:
+        if self._kernel is None:
+            return
+        query = str(data.get("query_text") or data.get("query") or data.get("text") or "").strip()
+        top_k = int(data.get("top_k", 8) or 8)
+        matches = self._manager.durable_search(query, top_k=top_k, memory_type=data.get("memory_type"))
+        if data.get("respond", True):
+            if not matches:
+                text = f"I did not find durable memory matches for: {query}"
+            else:
+                lines = [f"Memory search for: {query}"]
+                for i, match in enumerate(matches, 1):
+                    ts = match.get("timestamp")
+                    try:
+                        age_days = round((time.time() - float(ts)) / 86400, 1)
+                    except Exception:
+                        age_days = "?"
+                    snippet = str(match.get("text", "")).replace("\n", " ")[:240]
+                    lines.append(f"{i}. [{match.get('type')}] score={match.get('score')} age≈{age_days}d: {snippet}")
+                text = "\n".join(lines)
+            self._kernel.event_bus.emit(
+                Event(type="response_generated", data={"text": text, "source": "memory_search/v9.2", "matches": matches}, source_module=self.module_id),
+                Priority.COGNITIVE,
+            )
+        self._kernel.event_bus.emit(
+            Event(type="memory_search_completed", data={"query_text": query, "matches": matches}, source_module=self.module_id),
+            Priority.COGNITIVE,
+        )
+
     async def _handle_status(self, data: Dict[str, Any]) -> None:
         if self._kernel is None:
             return
         stats = self.to_dict().get("memory_stats", {})
+        sqlite_stats = self._manager.sqlite_counts()
         text = (
             f"Memory storage: {self._kernel.persistence._base}\n"
             f"Counts: {stats.get('counts')}\n"
             f"Retention: episodic≈{round(self._manager._episodic_retention_seconds / 86400)} days, "
             f"max_items={self._manager._episodic_max_items}, archive={self._manager._archive_decayed}\n"
-            f"Archive items: {len(self._manager._episodic_archive)}"
+            f"Archive items: {len(self._manager._episodic_archive)}\n"
+            f"SQLite/vector: {sqlite_stats}"
         )
         self._kernel.event_bus.emit(
             Event(type="response_generated", data={"text": text, "source": "memory_status"}, source_module=self.module_id),
@@ -639,12 +918,14 @@ class MemoryModule(CognitiveModule):
         p.save("memory_semantic", self._manager._semantic)
         p.save("memory_social", self._manager._social)
         p.save("memory_procedural", self._manager._procedural)
+        self._manager.commit_index()
 
     def shutdown(self) -> None:
         if self._kernel is None:
             return
         self._save_all()
-        logger.info("[Memory] Saved episodic, archive, semantic, social, procedural to disk")
+        self._manager.close()
+        logger.info("[Memory] Saved episodic, archive, semantic, social, procedural and SQLite/vector index to disk")
 
     def _load_persisted(self) -> None:
         if self._kernel is None:
@@ -681,6 +962,7 @@ class MemoryModule(CognitiveModule):
             "retention_days": round(self._manager._episodic_retention_seconds / 86400, 2),
             "stm_lifetime_seconds": self._manager._stm_lifetime_seconds,
             "storage_path": str(self._kernel.persistence._base) if self._kernel is not None else "",
+            "sqlite": self._manager.sqlite_counts(),
         }
         return base
 

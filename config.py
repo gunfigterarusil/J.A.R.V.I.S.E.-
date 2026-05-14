@@ -274,6 +274,10 @@ class MemoryConfig:
     archive_decayed: bool = field(default_factory=lambda: os.environ.get("MEMORY_ARCHIVE_DECAYED", "true").lower() == "true")
     semantic_autostore: bool = field(default_factory=lambda: os.environ.get("MEMORY_SEMANTIC_AUTOSTORE", "true").lower() == "true")
     save_interval_seconds: float = field(default_factory=lambda: float(os.environ.get("MEMORY_SAVE_INTERVAL_SECONDS", "60")))
+    sqlite_enabled: bool = field(default_factory=lambda: os.environ.get("MEMORY_SQLITE_ENABLED", "true").lower() == "true")
+    vector_enabled: bool = field(default_factory=lambda: os.environ.get("MEMORY_VECTOR_ENABLED", "true").lower() == "true")
+    vector_dimensions: int = field(default_factory=lambda: int(os.environ.get("MEMORY_VECTOR_DIMENSIONS", "256")))
+    search_top_k: int = field(default_factory=lambda: int(os.environ.get("MEMORY_SEARCH_TOP_K", "8")))
 
 
 @dataclass

@@ -1139,3 +1139,39 @@ MEMORY_SAVE_INTERVAL_SECONDS=60
 ```
 
 This means normal episodic memories can persist for about two years, and semantic/procedural/user-profile memories can persist indefinitely as long as the data folder is kept.
+
+
+## V9.2 Long-Term Memory Search
+
+Implemented in `JAV_v9_2_sqlite_vector_memory_mvp`: durable SQLite memory plus local hashed-vector semantic search.
+
+New commands:
+
+```text
+/memory
+/recall <query>
+/memory-search <query>
+згадай <тема>
+пошукай в пам'яті <тема>
+```
+
+Memory files are stored under `JARVIS_DATA_DIR` / portable `data/brain`:
+
+```text
+longterm_memory.sqlite3
+memory_episodic.json
+memory_semantic.json
+memory_episodic_archive.json
+```
+
+Recommended portable setup:
+
+```env
+JAV_PORTABLE=true
+JARVIS_DATA_DIR=data/brain
+MEMORY_EPISODIC_RETENTION_DAYS=3650
+MEMORY_SQLITE_ENABLED=true
+MEMORY_VECTOR_ENABLED=true
+```
+
+This is still not fine-tuning of the LLM weights. It is durable experience/memory retrieval, which gives the LLM much better context over months or years.

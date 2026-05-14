@@ -186,8 +186,15 @@ class ActionIntentModule(CognitiveModule):
         if any(p in lower for p in ["запусти сон", "консолідуй пам", "консолідація пам", "run sleep", "sleep cycle", "dream replay", "consolidate memory"]):
             return "event", "sleep_cycle_requested", {"force": True}, ""
 
+        # Durable memory search / recall.
+        m = re.search(r"(?:згадай|пригадай|пошукай(?:\s+в)?\s+пам|пошукай\s+у\s+пам|remember|recall|search memory|find in memory)\s+(.+)$", raw, flags=re.IGNORECASE)
+        if m:
+            query = m.group(1).strip().strip('"\'')
+            query = re.sub(r"^(?:про|about)\s+", "", query, flags=re.IGNORECASE).strip()
+            return "event", "memory_search_requested", {"query_text": query, "top_k": 8}, ""
+
         # Status/self/world/settings.
-        if any(p in lower for p in ["статус пам", "стан пам", "де пам", "storage status", "memory status", "покажи пам", "пам'ять", "память"]):
+        if any(p in lower for p in ["статус пам", "стан пам", "де пам", "storage status", "memory status", "покажи пам", "покажи стан пам", "де зберігається пам"]):
             return "event", "memory_status_requested", {}, ""
         if any(p in lower for p in ["статус дій", "статус action", "action status", "що ти можеш зробити", "покажи можливості"]):
             return "event", "action_status_requested", {}, ""

@@ -155,7 +155,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /see, /self, /world, /memory, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit.\n")
+    print("Jarvis chat mode. Type /see, /self, /world, /memory, /recall, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -171,6 +171,15 @@ async def run_with_chat(kernel: Kernel) -> None:
             if lower in {"/memory", "/memory-status", "/storage"}:
                 kernel.event_bus.emit(
                     CognitiveEvent(type="memory_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response()
+                continue
+
+            if lower.startswith("/recall ") or lower.startswith("/memory-search "):
+                query = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="memory_search_requested", data={"query_text": query, "top_k": 8, "respond": True}, source_module="cli_chat"),
                     Priority.COGNITIVE,
                 )
                 await wait_action_response()
@@ -423,6 +432,12 @@ def init_portable_layout(target: str | None = None) -> Path:
         "JARVIS_DATA_DIR": "data/brain",
         "ACTION_WORKSPACE_PATH": "data/workspace",
         "SCREENSHOT_DIR": "data/screenshots",
+        "MEMORY_SQLITE_ENABLED": "true",
+        "MEMORY_VECTOR_ENABLED": "true",
+        "MEMORY_VECTOR_DIMENSIONS": "256",
+        "MEMORY_EPISODIC_RETENTION_DAYS": "3650",
+        "MEMORY_EPISODIC_MAX_ITEMS": "100000",
+        "MEMORY_SEARCH_TOP_K": "8",
     }
     existing = {line.split("=", 1)[0].strip() for line in lines if "=" in line and not line.lstrip().startswith("#")}
     out = list(lines)

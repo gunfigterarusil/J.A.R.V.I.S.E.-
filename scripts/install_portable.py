@@ -102,6 +102,12 @@ def main() -> None:
         "JARVIS_DATA_DIR": "data/brain",
         "ACTION_WORKSPACE_PATH": "data/workspace",
         "SCREENSHOT_DIR": "data/screenshots",
+        "MEMORY_SQLITE_ENABLED": "true",
+        "MEMORY_VECTOR_ENABLED": "true",
+        "MEMORY_VECTOR_DIMENSIONS": "256",
+        "MEMORY_EPISODIC_RETENTION_DAYS": "3650",
+        "MEMORY_EPISODIC_MAX_ITEMS": "100000",
+        "MEMORY_SEARCH_TOP_K": "8",
     })
     write_launchers(dst)
     print(f"Portable JAV installed to: {dst}")
