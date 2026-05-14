@@ -116,7 +116,8 @@ class ActionFirewall:
             return result
 
         # 5. Confirmation required?
-        if risk.requires_confirmation and action_type not in self._perm._granted_actions:
+        approved_once = bool(event.data.get("_approved_once", False))
+        if risk.requires_confirmation and not approved_once and action_type not in self._perm._granted_actions:
             result = ValidationResult(
                 allowed=False,
                 requires_confirmation=True,

@@ -50,6 +50,8 @@ _ACTION_BASE_SCORES: Dict[str, float] = {
     "close_app": 3.0,
     # Tier 4 — file operations
     "read_file": 1.0,
+    "list_files": 1.0,
+    "search_files": 1.5,
     "write_file": 4.0,
     "delete_file": 6.0,
     "create_dir": 3.0,

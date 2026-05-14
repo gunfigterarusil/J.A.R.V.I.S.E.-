@@ -39,6 +39,8 @@ ACTION_LEVEL_MAP: Dict[str, PermissionLevel] = {
     "read_screen": PermissionLevel.L1_READ_SCREEN,
     "ocr": PermissionLevel.L1_READ_SCREEN,
     "read_file": PermissionLevel.L1_READ_SCREEN,
+    "list_files": PermissionLevel.L1_READ_SCREEN,
+    "search_files": PermissionLevel.L1_READ_SCREEN,
     # L2
     "web_search": PermissionLevel.L2_WEB_SEARCH,
     "web_fetch": PermissionLevel.L2_WEB_SEARCH,

@@ -174,6 +174,26 @@ class WorldModelConfig:
 
 
 @dataclass
+class ActionConfig:
+    """V7 safe PC automation settings.
+
+    File actions are sandboxed to ACTION_WORKSPACE_PATH by default.
+    Shell actions are disabled unless ACTION_ALLOW_SHELL=true and the
+    permission level is raised to L5.
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("ACTIONS_V7_ENABLED", "true").lower() == "true")
+    workspace_path: str = field(default_factory=lambda: os.environ.get("ACTION_WORKSPACE_PATH", "~/jarvis_workspace"))
+    allow_shell: bool = field(default_factory=lambda: os.environ.get("ACTION_ALLOW_SHELL", "false").lower() == "true")
+    command_timeout: float = field(default_factory=lambda: float(os.environ.get("ACTION_COMMAND_TIMEOUT", "20")))
+    max_read_chars: int = field(default_factory=lambda: int(os.environ.get("ACTION_MAX_READ_CHARS", "12000")))
+    max_list_entries: int = field(default_factory=lambda: int(os.environ.get("ACTION_MAX_LIST_ENTRIES", "120")))
+    allowed_commands: List[str] = field(default_factory=lambda: [
+        x.strip() for x in os.environ.get("ACTION_ALLOWED_COMMANDS", "python,python3,py,pytest,pip,pip3,git").split(",")
+        if x.strip()
+    ])
+
+
+@dataclass
 class SleepConfig:
     """V6 sleep / dream replay / memory consolidation settings."""
     enabled: bool = field(default_factory=lambda: os.environ.get("SLEEP_V6_ENABLED", "true").lower() == "true")
@@ -260,6 +280,11 @@ class KernelConfig:
     # V6 sleep / dream replay / memory consolidation
     # ------------------------------------------------------------------
     sleep: SleepConfig = field(default_factory=SleepConfig)
+
+    # ------------------------------------------------------------------
+    # V7 safe PC automation / tier4_actions
+    # ------------------------------------------------------------------
+    actions: ActionConfig = field(default_factory=ActionConfig)
 
     # ------------------------------------------------------------------
     # Voice interface

@@ -181,6 +181,11 @@ Use this mode to test Jarvis before enabling voice or PC automation. You can als
 /see
 /read-screen
 /explain-screen
+/actions
+/ls
+/read <path>
+/safety 4
+/write notes.txt :: hello
 ```
 
 ### 4. Run with voice
@@ -491,8 +496,60 @@ Everything is stored in `~/.jarvis_brain/`:
 | V4 | ✅ MVP Done | Rich emotions + deep internal monologue |
 | V5 | ✅ MVP Done | World model + mature self-model |
 | V6 | ✅ MVP Done | Sleep/dream replay + memory consolidation |
-| V7 | Next | PC automation via tier4_actions (safety-gated) |
-| V8 | Planned | Android / server / robot bodies |
+| V7 | ✅ MVP Done | PC automation via tier4_actions (safety-gated) |
+| V8 | Next | Android / server / robot bodies |
+
+
+### V7 safe PC automation MVP details
+
+V7 is implemented in `modules/tier4_actions/automation/action_executor_module.py`. It gives Jarvis limited “hands” while keeping the safety layer in the middle. Raw actions are never executed directly:
+
+```text
+chat/LLM/tool request
+  → action_request
+  → ActionFirewall + Constitution + Sandbox + PermissionManager + RiskEngine
+  → action_approved / action_denied / action_pending_confirmation
+  → action_executor
+  → action_result + response_generated
+```
+
+Default workspace:
+
+```text
+~/jarvis_workspace
+```
+
+Useful commands in `python main.py --chat`:
+
+```text
+/actions                         show V7 status and pending actions
+/ls [path]                       list files in workspace or allowed path
+/read <path>                     read a text file
+/search <query> [:: path]        search text files
+/safety                          show current safety level
+/safety 4                        allow sandboxed file edits
+/write <path> :: <content>       write file in sandbox
+/append <path> :: <content>      append file in sandbox
+/mkdir <path>                    create directory in sandbox
+/safety 5                        allow command tier checks
+/run python --version            run allowlisted command if shell enabled
+/approve <pending_id>            approve one pending risky action
+/deny <pending_id>               deny one pending action
+```
+
+Important `.env` settings:
+
+```env
+ACTIONS_V7_ENABLED=true
+ACTION_WORKSPACE_PATH=~/jarvis_workspace
+ACTION_ALLOW_SHELL=false
+ACTION_COMMAND_TIMEOUT=20
+ACTION_ALLOWED_COMMANDS=python,python3,py,pytest,pip,pip3,git
+ACTION_MAX_READ_CHARS=12000
+ACTION_MAX_LIST_ENTRIES=120
+```
+
+Shell commands are disabled by default and still require safety level L5 plus confirmation. V7 does not permit unrestricted PC control.
 
 
 ### V6 implementation details

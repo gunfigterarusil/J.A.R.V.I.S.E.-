@@ -27,6 +27,8 @@ if str(_ROOT) not in sys.path:
 from config import KernelConfig
 from core.kernel import Kernel, KernelAPI
 from core.lifecycle import LifecycleManager
+from core.event_bus import CognitiveEvent, Priority
+from core.safety.permission_manager import PermissionLevel
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,6 +105,10 @@ async def run_with_chat(kernel: Kernel) -> None:
             # Keep dream narratives available in chat only when manually requested.
             if event.data.get("requested_by") == "cli_chat":
                 text = str(event.data.get("narrative", "") or "")
+        elif et == "action_result":
+            # Usually action_executor also emits response_generated, but keep this fallback.
+            if event.data.get("respond_fallback"):
+                text = str(event.data)
         if text:
             try:
                 loop.call_soon_threadsafe(response_queue.put_nowait, text)
@@ -113,7 +119,42 @@ async def run_with_chat(kernel: Kernel) -> None:
     kernel.event_bus.emit = _capture_responses  # type: ignore[method-assign]
     kernel_task = asyncio.create_task(kernel.start())
 
-    print("Jarvis chat mode. Type /see, /self, /world, /sleep, /dream, /consolidate, or /exit to stop.\n")
+    def emit_action(action_type: str, payload: dict, respond: bool = True) -> None:
+        payload = dict(payload)
+        request_id = payload.get("request_id") or f"cli_action_{int(__import__('time').time() * 1000)}"
+        payload["request_id"] = request_id
+        # The firewall expects an already resolved path for path-based checks.
+        top_path = payload.get("path") or payload.get("cwd")
+        if top_path:
+            raw_path = Path(str(top_path)).expanduser()
+            if not raw_path.is_absolute():
+                workspace = Path(getattr(getattr(kernel.config, "actions", None), "workspace_path", "~/jarvis_workspace")).expanduser()
+                top_path = str((workspace / raw_path).resolve())
+            else:
+                top_path = str(raw_path.resolve())
+        kernel.event_bus.emit(
+            CognitiveEvent(
+                type="action_request",
+                data={
+                    "action_type": action_type,
+                    "payload": payload,
+                    "path": top_path,
+                    "request_id": request_id,
+                    "respond": respond,
+                },
+                source_module="cli_chat",
+            ),
+            Priority.REALTIME,
+        )
+
+    async def wait_action_response(timeout: float = 30.0) -> None:
+        try:
+            response = await asyncio.wait_for(response_queue.get(), timeout=timeout)
+            print(f"Jarvis: {response}\n")
+        except asyncio.TimeoutError:
+            print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
+
+    print("Jarvis chat mode. Type /see, /self, /world, /sleep, /dream, /consolidate, /actions, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -122,6 +163,105 @@ async def run_with_chat(kernel: Kernel) -> None:
                 continue
             if user_text.lower() in {"/exit", "/quit", "exit", "quit"}:
                 break
+
+
+            # V7 safe PC automation commands
+            lower = user_text.lower()
+            if lower in {"/actions", "/action-status", "/workspace"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="action_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response()
+                continue
+
+            if lower.startswith("/safety"):
+                parts = user_text.split(maxsplit=1)
+                if len(parts) == 1:
+                    pm = kernel.permission_manager
+                    print(f"Jarvis safety level: L{int(pm.current_level)} {pm.current_level.name}\n")
+                else:
+                    try:
+                        level_int = int(parts[1].strip().lstrip("Ll"))
+                        kernel.permission_manager.set_level(PermissionLevel(level_int))
+                        kernel.core_state.safety_level = level_int
+                        print(f"Jarvis: safety level set to L{level_int} {PermissionLevel(level_int).name}.\n")
+                    except Exception as exc:
+                        print(f"Jarvis: invalid safety level. Use /safety 0..6. Error: {exc}\n")
+                continue
+
+            if lower.startswith("/approve"):
+                parts = user_text.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("Jarvis: usage: /approve <pending_id>\n")
+                else:
+                    kernel.event_bus.emit(CognitiveEvent(type="v7_user_approval", data={"pending_id": parts[1].strip()}, source_module="cli_chat"), Priority.REALTIME)
+                    await wait_action_response()
+                continue
+
+            if lower.startswith("/deny"):
+                parts = user_text.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("Jarvis: usage: /deny <pending_id>\n")
+                else:
+                    kernel.event_bus.emit(CognitiveEvent(type="v7_user_deny", data={"pending_id": parts[1].strip()}, source_module="cli_chat"), Priority.REALTIME)
+                    await wait_action_response()
+                continue
+
+            if lower.startswith("/ls"):
+                path = user_text.split(maxsplit=1)[1] if len(user_text.split(maxsplit=1)) > 1 else "."
+                emit_action("list_files", {"path": path})
+                await wait_action_response()
+                continue
+
+            if lower.startswith("/read "):
+                path = user_text.split(maxsplit=1)[1].strip()
+                emit_action("read_file", {"path": path})
+                await wait_action_response()
+                continue
+
+            if lower.startswith("/search "):
+                rest = user_text.split(maxsplit=1)[1].strip()
+                # Syntax: /search query OR /search query :: path
+                if "::" in rest:
+                    query, path = [x.strip() for x in rest.split("::", 1)]
+                else:
+                    query, path = rest, "."
+                emit_action("search_files", {"path": path, "query": query})
+                await wait_action_response()
+                continue
+
+            if lower.startswith("/mkdir "):
+                path = user_text.split(maxsplit=1)[1].strip()
+                emit_action("create_dir", {"path": path})
+                await wait_action_response()
+                continue
+
+            if lower.startswith("/write "):
+                rest = user_text.split(maxsplit=1)[1]
+                if "::" not in rest:
+                    print("Jarvis: usage: /write <path> :: <content>\n")
+                else:
+                    path, content = [x.strip() for x in rest.split("::", 1)]
+                    emit_action("write_file", {"path": path, "content": content})
+                    await wait_action_response()
+                continue
+
+            if lower.startswith("/append "):
+                rest = user_text.split(maxsplit=1)[1]
+                if "::" not in rest:
+                    print("Jarvis: usage: /append <path> :: <content>\n")
+                else:
+                    path, content = [x.strip() for x in rest.split("::", 1)]
+                    emit_action("write_file", {"path": path, "content": content, "append": True})
+                    await wait_action_response()
+                continue
+
+            if lower.startswith("/run "):
+                command = user_text.split(maxsplit=1)[1].strip()
+                emit_action("run_command", {"cwd": ".", "command": command})
+                await wait_action_response(timeout=60.0)
+                continue
 
 
             if user_text.lower() in {"/sleep", "/dream", "/consolidate", "/memory-consolidate"}:
