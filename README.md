@@ -1,2 +1,534 @@
-# J.A.R.V.I.S.E.-
-A persistent modular cognitive brain — not a chatbot, not a prompt wrapper. A running program that thinks, remembers, imagines, and evolves. It starts when you turn on your PC and keeps a continuous thread of identity across sessions. Every module is replaceable. The kernel is permanent.
+# Jarvis Brain Core
+
+A **persistent modular cognitive brain** — not a chatbot, not a prompt wrapper.
+
+A running program that thinks, remembers, imagines, and evolves. It starts when you turn on your PC and keeps a continuous thread of identity across sessions. Every module is replaceable. The kernel is permanent.
+
+---
+
+## What It Is
+
+Most AI assistants are stateless: every conversation starts from zero. Jarvis Brain Core is different.
+
+It maintains a **continuous cognitive runtime** — a kernel that ticks 10 times per second, orchestrating a set of cognitive modules (memory, emotions, hormones, imagination, goals, personality) that collectively produce something closer to *ongoing thought* than *request-response*.
+
+```
+You talk to it → it thinks, remembers, imagines multiple possibilities,
+                 evaluates them, feels something about the answer,
+                 and responds from a persistent identity
+                 that grows over time.
+```
+
+The LLM (Ollama, Gemini, Claude, GPT) is just a **reasoning tool** — not the brain. The brain is the kernel.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                     KERNEL CORE                     │
+│  EventBus · CoreState · Scheduler · Persistence     │
+│  AttentionRouter · ModuleManager · LifecycleManager │
+│                                                     │
+│  ┌──────────────────────────────────────────────┐   │
+│  │         SAFETY LAYER  (always active)        │   │
+│  │  Constitution · Sandbox · RiskEngine         │   │
+│  │  PermissionManager · ActionFirewall · Audit  │   │
+│  └──────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────┘
+          │ registers / ticks / routes events
+          ▼
+┌─────────────────────────────────────────────────────┐
+│                    MODULES                          │
+│                                                     │
+│  Tier 1 — Essential (always loaded)                 │
+│    memory · working_memory · self_model             │
+│    emotions · hormones · goals · temporal_engine    │
+│                                                     │
+│  Tier 2 — Perception (stubs, ready to wire)         │
+│    screen · vision · audio                          │
+│                                                     │
+│  Tier 3 — Reasoning                                 │
+│    llm · monologue · planner · world_model          │
+│    imagination/                                     │
+│      theory_builder · critic · counterfactuals      │
+│      hypothesis_engine · scenario_simulator         │
+│      idea_memory                                    │
+│                                                     │
+│  Tier 4 — Actions (stubs, safe-gated)               │
+│    tts                                              │
+│                                                     │
+│  Tier 5 — Evolution                                 │
+│    dream · personality · self_learning              │
+└─────────────────────────────────────────────────────┘
+          │ web UI
+          ▼
+┌─────────────────────────────────────────────────────┐
+│  FastAPI Dashboard  (localhost:8000)                │
+│  Live state · module control · event stream         │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## Key Concepts
+
+### Cognitive Kernel
+The runtime core. It ticks every 100ms, dispatches events across three priority queues (`REALTIME → COGNITIVE → BACKGROUND`), allocates attention budget between modules, and persists state to disk on shutdown.
+
+### Modules
+Self-contained cognitive units. Each module:
+- subscribes to event types it cares about
+- emits events to communicate with other modules
+- never calls another module directly
+- has a cost (cpu/ram) that the attention router uses for throttling
+
+### Safety Constitution
+Every action with side effects (`speak`, `write_file`, `run_command`, etc.) is emitted as an `action_request` event. The **ActionFirewall** intercepts it before any module sees it and runs:
+1. **Constitution** — 14 hard rules (rm -rf, format, System32, encoded exec, etc.) — unbypassable
+2. **Sandbox** — write access restricted to `~/jarvis_workspace/` and `~/.jarvis_brain/`
+3. **RiskEngine** — danger score 0–10
+4. **PermissionManager** — level gate L0 (think) → L6 (autonomous)
+
+Safety cannot be disabled by any module or permission level.
+
+### Imagination Engine
+When a goal fails, uncertainty is high, or a complex question arrives, the brain switches to `IMAGINATION` or `DEEP_ANALYSIS` thinking mode:
+
+```
+Problem
+  → HypothesisEngine  → 3-7 competing theories (each with confidence, risk, evidence)
+  → ScenarioSimulator → projected outcomes per theory
+  → CriticModule      → filter impossible, rank by confidence × (1 − risk)
+  → Planner           → decompose best theory into action steps
+  → ActionFirewall    → gate before any execution
+```
+
+The brain thinks in **possibilities**, not single answers.
+
+### Multi-LLM Router
+A single interface that routes to whichever AI provider is available and best suited for the task:
+
+| Task | Default provider |
+|------|-----------------|
+| Simple chat | Ollama (local) |
+| Complex reasoning | Ollama → Anthropic → OpenAI |
+| Imagination | Strongest available |
+| Summarization | Fastest available |
+
+If no provider is configured, `NullProvider` returns structured low-confidence stubs. The system always runs.
+
+### Persistence
+Everything that matters survives restart:
+- Episodic, semantic, social, procedural memory
+- Active goals
+- Personality traits (Big Five, slow drift)
+- Permission grants/denials
+- Generated theories (idea memory)
+- Session count and uptime
+
+Stored in `~/.jarvis_brain/` as atomic JSON files.
+
+---
+
+## Quick Start
+
+### 1. Install dependencies
+
+```bash
+pip install fastapi uvicorn websockets
+```
+
+For local LLM (recommended):
+```bash
+# Install Ollama: https://ollama.com
+ollama pull llama3.2
+```
+
+For cloud LLM (optional):
+```bash
+pip install anthropic          # Claude
+pip install openai             # OpenAI / LM Studio
+pip install google-generativeai  # Gemini
+```
+
+### 2. Run headless (terminal only)
+
+```bash
+python main.py
+```
+
+The kernel starts, auto-discovers all 17 modules, and begins the cognitive tick loop. Press `Ctrl+C` to stop (state is saved automatically).
+
+### 3. Run with web dashboard
+
+```bash
+python main.py --web
+```
+
+Open **http://localhost:8000** — live view of kernel state, active modules, event stream.
+
+```bash
+# Custom port
+python main.py --web --port 9000
+```
+
+---
+
+## Connecting an LLM
+
+Edit `config.py` or override at runtime. The system starts without any LLM — just add what you have.
+
+### Ollama (local, free, recommended for start)
+
+```bash
+# Make sure Ollama is running
+ollama serve
+ollama pull llama3.2   # or llama3.1, mistral, phi3, etc.
+```
+
+In `config.py`:
+```python
+llm: LLMRouterConfig = field(default_factory=lambda: LLMRouterConfig(
+    ollama_host="http://localhost:11434",
+    ollama_model="llama3.2",
+))
+```
+
+Ollama is auto-detected on startup — no API key needed.
+
+### Anthropic (Claude)
+
+```bash
+pip install anthropic
+```
+
+```python
+llm: LLMRouterConfig = field(default_factory=lambda: LLMRouterConfig(
+    anthropic_api_key="${ANTHROPIC_API_KEY}",
+    anthropic_model="claude-3-5-sonnet-latest",
+))
+```
+
+### Gemini
+
+```bash
+pip install google-generativeai
+```
+
+```python
+llm: LLMRouterConfig = field(default_factory=lambda: LLMRouterConfig(
+    gemini_api_key="${GEMINI_API_KEY}",
+    gemini_model="gemini-2.0-flash",
+))
+```
+
+### OpenAI / LM Studio / vLLM
+
+```bash
+pip install openai
+```
+
+```python
+llm: LLMRouterConfig = field(default_factory=lambda: LLMRouterConfig(
+    openai_api_key="${OPENAI_API_KEY}",
+    openai_model="gpt-4o",
+    # For LM Studio:
+    # openai_base_url="http://localhost:1234/v1",
+    # openai_api_key="lm-studio",
+))
+```
+
+### llama.cpp server
+
+```python
+llm: LLMRouterConfig = field(default_factory=lambda: LLMRouterConfig(
+    llamacpp_host="http://localhost:8080",
+))
+```
+
+### Multiple providers + custom routing
+
+```python
+llm: LLMRouterConfig = field(default_factory=lambda: LLMRouterConfig(
+    ollama_model="llama3.2",
+    anthropic_api_key="${ANTHROPIC_API_KEY}",
+    anthropic_model="claude-opus-4-7",
+    # Route heavy tasks to Claude, everything else to Ollama
+    routing={
+        "complex_reasoning": "anthropic",
+        "creative_imagination": "anthropic",
+        "simple_chat": "ollama",
+        "summarization": "ollama",
+    }
+))
+```
+
+---
+
+## Sending Events
+
+Any module can trigger cognitive processing by emitting events. Via the web UI (`POST /api/event/emit`) or directly in code:
+
+```python
+from core.event_bus import CognitiveEvent, Priority
+
+# Simulate user input
+kernel.event_bus.emit(
+    CognitiveEvent(
+        type="user_utterance",
+        data={"text": "Why does my Gradle build keep failing?"},
+        source_module="user",
+    ),
+    Priority.REALTIME,
+)
+```
+
+The brain will:
+1. Select thinking mode (`DELIBERATIVE` or `IMAGINATION` for long questions)
+2. Request memory context
+3. Call the LLM with assembled context (self-model + working memory + memory)
+4. Emit `thought_generated` → `response_generated`
+5. Optionally trigger the imagination engine for hypothesis generation
+
+### Trigger imagination directly
+
+```python
+kernel.event_bus.emit(
+    CognitiveEvent(
+        type="imagination_requested",
+        data={"text": "Gradle build fails intermittently on CI but not locally"},
+        source_module="user",
+    ),
+    Priority.COGNITIVE,
+)
+```
+
+Result: 3–7 competing hypotheses → scenario simulation per hypothesis → critic ranking → monologue reflection.
+
+### Request an action (goes through safety layer)
+
+```python
+kernel.event_bus.emit(
+    CognitiveEvent(
+        type="action_request",
+        data={
+            "action_type": "speak",
+            "payload": {"text": "Hello, I am ready."},
+            "reason": "Startup greeting",
+        },
+        source_module="self_model",
+    ),
+    Priority.REALTIME,
+)
+# → ActionFirewall validates → action_approved → TTS module executes
+```
+
+---
+
+## Permission Levels
+
+The system starts at **L1** (read screen, no writes). Raise it by emitting a grant event or at runtime:
+
+| Level | Name | Allowed |
+|-------|------|---------|
+| L0 | THINK | think, remember, speak |
+| L1 | READ_SCREEN | + screenshot, OCR, read files *(default)* |
+| L2 | WEB_SEARCH | + web search, web fetch |
+| L3 | OPEN_APPS | + open/close/switch applications |
+| L4 | EDIT_FILES | + write/move/delete files in sandbox |
+| L5 | RUN_COMMANDS | + shell commands (confirmed only) |
+| L6 | AUTONOMOUS | + chained actions (never default) |
+
+```python
+# Grant a specific action permanently
+kernel.event_bus.emit(
+    CognitiveEvent(
+        type="user_permission_grant",
+        data={"action_type": "write_file"},
+        source_module="user",
+    ),
+    Priority.COGNITIVE,
+)
+
+# Raise the global level
+kernel.permission_manager.set_level(PermissionLevel.L3_OPEN_APPS)
+```
+
+---
+
+## Project Structure
+
+```
+C:\AI\JAV\
+│
+├── main.py                          # Entry point
+├── config.py                        # All configuration (KernelConfig, LLMRouterConfig)
+│
+├── core/
+│   ├── kernel.py                    # Kernel + KernelAPI
+│   ├── event_bus.py                 # CognitiveEvent + 3-queue EventBus
+│   ├── state.py                     # CoreState (rich live snapshot)
+│   ├── module_base.py               # CognitiveModule base class
+│   ├── module_manager.py            # Auto-discovery and hot-reload
+│   ├── attention_router.py          # Budget allocation + event scoring
+│   ├── scheduler.py                 # Delayed and repeating tasks
+│   ├── persistence.py               # Atomic JSON persistence
+│   ├── lifecycle.py                 # Startup / shutdown sequencing
+│   ├── llm_router.py                # Multi-LLM provider abstraction
+│   ├── thinking_modes.py            # 6 cognition depth levels
+│   └── safety/
+│       ├── constitution.py          # 14 hard rules (unbypassable)
+│       ├── sandbox.py               # Filesystem ACL
+│       ├── risk_engine.py           # Danger scoring 0–10
+│       ├── permission_manager.py    # L0–L6 permission gate
+│       ├── action_firewall.py       # Validation chain
+│       └── audit_log.py             # Append-only JSONL log
+│
+├── modules/
+│   ├── tier1_essential/
+│   │   ├── memory/                  # STM, episodic, semantic, procedural, social
+│   │   ├── working_memory/          # 7-slot active thought buffer
+│   │   ├── self_model/              # Identity, confidence, attachment
+│   │   ├── emotions/                # VAD emotional model
+│   │   ├── hormones/                # Dopamine, cortisol, serotonin, oxytocin
+│   │   ├── goals/                   # Goal management and persistence
+│   │   └── temporal_engine/         # Session continuity, idle detection
+│   │
+│   ├── tier2_perception/            # screen · vision · audio (stubs)
+│   │
+│   ├── tier3_reasoning/
+│   │   ├── llm/                     # LLM module (uses LLMRouter)
+│   │   ├── monologue/               # Internal self-narration
+│   │   ├── planner/                 # Goal → action steps (LLM-driven)
+│   │   ├── world_model/             # User pattern tracking
+│   │   └── imagination/
+│   │       ├── theory_builder.py    # Orchestrates imagination cycle
+│   │       ├── hypothesis_engine.py # Generates competing theories
+│   │       ├── scenario_simulator.py# Simulates outcomes per theory
+│   │       ├── critic.py            # Ranks and filters theories
+│   │       ├── counterfactuals.py   # "What if X hadn't happened?"
+│   │       └── idea_memory.py       # Persistent theory storage
+│   │
+│   ├── tier4_actions/               # tts (stub, safety-gated)
+│   │
+│   └── tier5_evolution/
+│       ├── dream/                   # Memory consolidation during idle
+│       ├── personality/             # Big Five traits, slow drift
+│       └── self_learning/           # Heuristics from success/failure
+│
+└── interfaces/
+    └── web_ui/
+        ├── app.py                   # FastAPI + WebSocket dashboard
+        └── templates/index.html
+```
+
+---
+
+## Persistent State
+
+Everything is stored in `~/.jarvis_brain/`:
+
+| File | Contents |
+|------|----------|
+| `core_state.json` | Consciousness, energy, focus at shutdown |
+| `memory_episodic.json` | Episodic memory |
+| `memory_semantic.json` | Semantic knowledge |
+| `memory_social.json` | Social memory |
+| `goals.json` | In-progress goals |
+| `personality.json` | Big Five traits + history |
+| `self_model.json` | Identity, capabilities, attachment |
+| `world_model.json` | Observed user patterns |
+| `permissions.json` | Granted/denied action overrides |
+| `idea_memory.json` | Generated theories and hypotheses |
+| `audit.jsonl` | Append-only log of all action attempts |
+
+---
+
+## Development Roadmap
+
+| Version | Status | Focus |
+|---------|--------|-------|
+| V0 | ✅ Done | Kernel + 17 modules + safety + imagination |
+| V1 | Next | Real LLM conversation loop + memory retrieval |
+| V2 | Planned | Voice (TTS + STT) |
+| V3 | Planned | Screen reading (OCR + ScreenParser) |
+| V4 | Planned | Rich emotions + monologue depth |
+| V5 | Planned | World model + self-model maturity |
+| V6 | Planned | Sleep/dream replay + memory consolidation |
+| V7 | Planned | PC automation via tier4_actions (safety-gated) |
+| V8 | Planned | Android / server / robot bodies |
+
+---
+
+## Writing a New Module
+
+Create a file anywhere under `modules/` following the `create_module()` convention — it will be auto-discovered on next startup.
+
+```python
+# modules/tier3_reasoning/my_module/my_module.py
+from core import CognitiveModule, CognitiveEvent as Event, Priority
+
+class MyModule(CognitiveModule):
+    def __init__(self):
+        super().__init__(
+            module_id="my_module",
+            cost={"cpu": 0.10, "gpu": 0.0, "ram": 0.05},
+        )
+
+    def initialize(self, kernel):
+        super().initialize(kernel)
+        kernel.event_bus.register_consumer(
+            self.module_id, ["user_utterance", "goal_activated"]
+        )
+
+    async def on_event(self, event: Event):
+        if event.type == "user_utterance":
+            text = event.data.get("text", "")
+            # Do something, then emit
+            self.kernel.event_bus.emit(
+                Event(
+                    type="thought_generated",
+                    data={"text": f"My module processed: {text}"},
+                    source_module=self.module_id,
+                ),
+                Priority.COGNITIVE,
+            )
+
+    def update(self, dt: float):
+        pass  # called every tick
+
+
+def create_module():
+    return MyModule()
+```
+
+**Rules:**
+- Never import another module directly — use events
+- Never emit `action_request` — emit it and let the firewall decide
+- Use `kernel.persistence.save("my_namespace", data)` in `shutdown()`
+- Use `kernel.llm_router.generate(prompt, task_type=TaskType.SIMPLE_CHAT)` for LLM access
+
+---
+
+## Requirements
+
+```
+Python 3.10+
+fastapi
+uvicorn[standard]
+websockets
+
+# Optional LLM providers (install what you need):
+anthropic          # Claude
+openai             # OpenAI / LM Studio / vLLM
+google-generativeai # Gemini
+
+# Local LLM (no pip install needed — standalone binary):
+# Ollama:   https://ollama.com
+# llama.cpp: https://github.com/ggerganov/llama.cpp
+```
+
+Minimum hardware: any PC with 4 GB RAM runs the full cognitive runtime without an LLM.  
+With local LLM: 8 GB RAM for 7B models, 16 GB for 13B+.

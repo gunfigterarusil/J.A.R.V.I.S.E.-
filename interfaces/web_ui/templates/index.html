@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis Brain — Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-left">
+                <h1 class="header-title">Jarvis Brain</h1>
+                <span class="header-version">v2.0.0</span>
+            </div>
+            <div class="header-center">
+                <div class="status-indicator" id="status-indicator">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span class="status-text" id="status-text">RUNNING</span>
+                </div>
+                <span class="thinking-mode-badge mode-REACTIVE" id="thinking-mode-badge">REACTIVE</span>
+            </div>
+            <div class="header-right">
+                <div class="timestamp" id="current-timestamp">--:--:--</div>
+            </div>
+        </header>
+
+        <!-- Tab Bar -->
+        <nav class="tab-bar">
+            <button class="tab-btn active" data-tab="brain" onclick="window.pca.switchTab('brain')">BRAIN</button>
+            <button class="tab-btn" data-tab="chat" onclick="window.pca.switchTab('chat')">CHAT</button>
+        </nav>
+
+        <!-- ====== BRAIN TAB ====== -->
+        <div class="tab-content active" id="tab-brain">
+            <main class="dashboard-main">
+                <!-- Left Panel: Module Manager -->
+                <section class="panel panel-left">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Modules</h2>
+                        <button class="btn btn-primary btn-sm" id="btn-load-module">Load</button>
+                    </div>
+                    <div class="panel-body">
+                        <div class="module-list" id="module-list"></div>
+                    </div>
+                </section>
+
+                <!-- Center Panel: Core State + Emotion + Hormones -->
+                <section class="panel panel-center">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Core State</h2>
+                    </div>
+                    <div class="panel-body">
+                        <!-- Core gauges -->
+                        <div class="state-grid">
+                            <div class="gauge-item">
+                                <div class="gauge-header">
+                                    <span class="gauge-label">Consciousness</span>
+                                    <span class="gauge-value" id="val-consciousness">--%</span>
+                                </div>
+                                <div class="gauge-bar-bg">
+                                    <div class="gauge-bar-fill" id="bar-consciousness" style="width:0%"></div>
+                                </div>
+                            </div>
+                            <div class="gauge-item">
+                                <div class="gauge-header">
+                                    <span class="gauge-label">Energy</span>
+                                    <span class="gauge-value" id="val-energy">--%</span>
+                                </div>
+                                <div class="gauge-bar-bg">
+                                    <div class="gauge-bar-fill" id="bar-energy" style="width:0%"></div>
+                                </div>
+                            </div>
+                            <div class="gauge-item">
+                                <div class="gauge-header">
+                                    <span class="gauge-label">Mental Overload</span>
+                                    <span class="gauge-value" id="val-mental-overload">--%</span>
+                                </div>
+                                <div class="gauge-bar-bg">
+                                    <div class="gauge-bar-fill gauge-warning" id="bar-mental-overload" style="width:0%"></div>
+                                </div>
+                            </div>
+                            <div class="gauge-item">
+                                <div class="gauge-header">
+                                    <span class="gauge-label">Motivation</span>
+                                    <span class="gauge-value" id="val-motivation">--%</span>
+                                </div>
+                                <div class="gauge-bar-bg">
+                                    <div class="gauge-bar-fill" id="bar-motivation" style="width:0%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Emotion State -->
+                        <div class="section-divider"></div>
+                        <div class="emotion-section">
+                            <div class="section-header-row">
+                                <h3 class="section-subtitle">Emotion</h3>
+                                <span class="emotion-label" id="emotion-label">neutral</span>
+                            </div>
+                            <div class="vad-bars">
+                                <div class="vad-bar">
+                                    <span class="vad-letter">V</span>
+                                    <div class="vad-track">
+                                        <div class="vad-fill vad-valence" id="bar-valence" style="width:50%"></div>
+                                    </div>
+                                    <span class="vad-value" id="val-valence">0.0</span>
+                                </div>
+                                <div class="vad-bar">
+                                    <span class="vad-letter">A</span>
+                                    <div class="vad-track">
+                                        <div class="vad-fill vad-arousal" id="bar-arousal" style="width:50%"></div>
+                                    </div>
+                                    <span class="vad-value" id="val-arousal">0.0</span>
+                                </div>
+                                <div class="vad-bar">
+                                    <span class="vad-letter">D</span>
+                                    <div class="vad-track">
+                                        <div class="vad-fill vad-dominance" id="bar-dominance" style="width:50%"></div>
+                                    </div>
+                                    <span class="vad-value" id="val-dominance">0.0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Hormones -->
+                        <div class="section-divider"></div>
+                        <div class="hormone-section">
+                            <h3 class="section-subtitle">Hormones</h3>
+                            <div class="hormone-grid">
+                                <div class="hormone-item">
+                                    <span class="hormone-name dopamine">Dopamine</span>
+                                    <div class="hormone-track">
+                                        <div class="hormone-fill dopamine" id="bar-dopamine" style="width:50%"></div>
+                                    </div>
+                                    <span class="hormone-value" id="val-dopamine">0.5</span>
+                                </div>
+                                <div class="hormone-item">
+                                    <span class="hormone-name cortisol">Cortisol</span>
+                                    <div class="hormone-track">
+                                        <div class="hormone-fill cortisol" id="bar-cortisol" style="width:20%"></div>
+                                    </div>
+                                    <span class="hormone-value" id="val-cortisol">0.2</span>
+                                </div>
+                                <div class="hormone-item">
+                                    <span class="hormone-name oxytocin">Oxytocin</span>
+                                    <div class="hormone-track">
+                                        <div class="hormone-fill oxytocin" id="bar-oxytocin" style="width:50%"></div>
+                                    </div>
+                                    <span class="hormone-value" id="val-oxytocin">0.5</span>
+                                </div>
+                                <div class="hormone-item">
+                                    <span class="hormone-name serotonin">Serotonin</span>
+                                    <div class="hormone-track">
+                                        <div class="hormone-fill serotonin" id="bar-serotonin" style="width:50%"></div>
+                                    </div>
+                                    <span class="hormone-value" id="val-serotonin">0.5</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Active Focus -->
+                        <div class="section-divider"></div>
+                        <div class="focus-section">
+                            <h3 class="section-subtitle">Active Focus</h3>
+                            <div class="focus-tags" id="focus-tags"></div>
+                        </div>
+
+                        <!-- Active Goals -->
+                        <div class="section-divider"></div>
+                        <div class="goals-section">
+                            <h3 class="section-subtitle">Active Goals</h3>
+                            <div class="goals-list" id="goals-list">
+                                <span class="text-muted">No active goals</span>
+                            </div>
+                        </div>
+
+                        <!-- Active Modules -->
+                        <div class="section-divider"></div>
+                        <div class="active-modules-section">
+                            <h3 class="section-subtitle">Active Modules</h3>
+                            <div class="active-modules-list" id="active-modules-list"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Right Panel: Event Log + Monologue + Control -->
+                <section class="panel panel-right">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Event Log</h2>
+                        <span class="event-count badge" id="event-count">0</span>
+                    </div>
+                    <div class="panel-body">
+                        <!-- Monologue stream -->
+                        <div class="monologue-container">
+                            <div class="monologue-header">Internal Monologue</div>
+                            <div class="monologue-stream" id="monologue-stream">
+                                <span class="text-muted">...</span>
+                            </div>
+                        </div>
+
+                        <!-- Event Log -->
+                        <div class="event-log-container">
+                            <div class="event-log" id="event-log"></div>
+                        </div>
+
+                        <!-- Emit Event Form -->
+                        <div class="event-form-container">
+                            <h3 class="section-subtitle">Emit Event</h3>
+                            <form id="event-form" class="event-form">
+                                <div class="form-group">
+                                    <input type="text" id="event-type" placeholder="Event type" required>
+                                </div>
+                                <div class="form-group">
+                                    <textarea id="event-data" rows="2" placeholder='{"key": "value"}'></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <select id="event-priority">
+                                        <option value="BACKGROUND">Background</option>
+                                        <option value="COGNITIVE" selected>Cognitive</option>
+                                        <option value="REALTIME">Realtime</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block">Emit</button>
+                            </form>
+                        </div>
+
+                        <!-- Shutdown -->
+                        <div class="shutdown-container">
+                            <button class="btn btn-danger btn-block" id="btn-shutdown">
+                                <span>&#x23FB;</span> Shutdown
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- ====== CHAT TAB ====== -->
+        <div class="tab-content" id="tab-chat">
+            <div class="chat-layout">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-welcome">
+                        <div class="chat-welcome-icon">&#x1F9E0;</div>
+                        <div class="chat-welcome-text">Jarvis Brain is running.<br>Start a conversation below.</div>
+                    </div>
+                </div>
+                <div class="chat-input-bar">
+                    <div class="chat-mode-indicator">
+                        <span class="mode-label">Mode:</span>
+                        <span class="thinking-mode-badge mode-REACTIVE" id="chat-mode-badge">REACTIVE</span>
+                        <span class="imagination-dot" id="imagination-dot" title="Imagination active"></span>
+                    </div>
+                    <textarea id="chat-input" placeholder="Talk to Jarvis... (Enter to send, Shift+Enter for newline)" rows="2"></textarea>
+                    <button id="chat-send" class="btn btn-primary">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="dashboard-footer">
+            <div class="footer-left">
+                <div class="footer-item">
+                    <span class="footer-label">Tick:</span>
+                    <span class="footer-value" id="tick-counter">0</span>
+                </div>
+                <div class="footer-item">
+                    <span class="footer-label">Uptime:</span>
+                    <span class="footer-value" id="uptime">0s</span>
+                </div>
+            </div>
+            <div class="footer-center">
+                <div class="footer-item">
+                    <span class="footer-label">Queue:</span>
+                    <span class="footer-value" id="queue-size">0</span>
+                </div>
+                <div class="footer-item">
+                    <span class="footer-label">WS:</span>
+                    <span class="footer-value disconnected" id="ws-status">Disconnected</span>
+                </div>
+            </div>
+            <div class="footer-right">
+                <div class="footer-item">
+                    <span class="footer-label">Modules:</span>
+                    <span class="footer-value" id="module-count">0</span>
+                </div>
+                <div class="footer-item">
+                    <span class="footer-label">Latency:</span>
+                    <span class="footer-value" id="api-latency">-- ms</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Load Module Modal -->
+    <div class="modal" id="load-module-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Load Module</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="load-module-form">
+                    <div class="form-group">
+                        <label for="module-path">Module Path</label>
+                        <input type="text" id="module-path" placeholder="/path/to/module.py" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Load</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shutdown Confirmation Modal -->
+    <div class="modal" id="shutdown-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Confirm Shutdown</h3>
+                <button class="modal-close" id="shutdown-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Shutdown the kernel? All active processes will stop.</p>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" id="shutdown-cancel">Cancel</button>
+                    <button class="btn btn-danger" id="shutdown-confirm">Shutdown</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

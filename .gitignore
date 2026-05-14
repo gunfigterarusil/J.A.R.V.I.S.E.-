@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Logs and runtime output
+*.log
+output.log
+run*.log
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Local persistence / generated memory
+.jarvis_brain/
+data/memory/
+data/config/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
