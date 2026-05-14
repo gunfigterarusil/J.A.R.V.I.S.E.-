@@ -215,6 +215,23 @@ class WorldModelConfig:
 
 
 @dataclass
+class WebLearningConfig:
+    """V9.3 web search / web learning settings.
+
+    Web learning is request-driven by default. It fetches sources with limits,
+    summarizes them, and stores sourced notes into long-term memory.
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("WEB_LEARNING_ENABLED", "true").lower() == "true")
+    search_enabled: bool = field(default_factory=lambda: os.environ.get("WEB_SEARCH_ENABLED", "true").lower() == "true")
+    learn_enabled: bool = field(default_factory=lambda: os.environ.get("WEB_LEARN_STORE_ENABLED", "true").lower() == "true")
+    max_results: int = field(default_factory=lambda: int(os.environ.get("WEB_SEARCH_MAX_RESULTS", "5")))
+    max_sources: int = field(default_factory=lambda: int(os.environ.get("WEB_LEARN_MAX_SOURCES", "4")))
+    timeout_seconds: float = field(default_factory=lambda: float(os.environ.get("WEB_FETCH_TIMEOUT_SECONDS", "12")))
+    max_chars_per_page: int = field(default_factory=lambda: int(os.environ.get("WEB_FETCH_MAX_CHARS_PER_PAGE", "9000")))
+    user_agent: str = field(default_factory=lambda: os.environ.get("WEB_USER_AGENT", "JAV-WebLearning/0.1"))
+
+
+@dataclass
 class NaturalActionConfig:
     """V8.1 natural-language action routing settings.
 
@@ -374,6 +391,11 @@ class KernelConfig:
     actions: ActionConfig = field(default_factory=ActionConfig)
     natural_actions: NaturalActionConfig = field(default_factory=NaturalActionConfig)
     code_repair: CodeRepairConfig = field(default_factory=CodeRepairConfig)
+
+    # ------------------------------------------------------------------
+    # V9.3 Web learning / search
+    # ------------------------------------------------------------------
+    web_learning: WebLearningConfig = field(default_factory=WebLearningConfig)
 
     # ------------------------------------------------------------------
     # Voice interface

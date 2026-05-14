@@ -535,7 +535,10 @@ Everything is stored in `~/.jarvis_brain/`:
 | V8 | ✅ MVP Done | Native desktop app + conversational safe actions |
 | V8.1 | ✅ MVP Done | Settings Center + broader natural voice/chat actions |
 | V9 | ✅ MVP Done | Cognitive Project Repair Agent: diagnose → memory/self/world → LLM patch → safety apply |
-| V10 | Next | Android / server / robot bodies |
+| V9.1 | ✅ Done | Long-term memory retention + portable paths |
+| V9.2 | ✅ Done | SQLite + vector memory search |
+| V9.3 | ✅ Done | Web learning/search + improved desktop UI/settings usability |
+| V10 | Next | Autonomous task chains / daemon stability, then Android/server/robot bodies |
 
 
 ### V8 desktop + conversational action MVP details
@@ -1175,3 +1178,58 @@ MEMORY_VECTOR_ENABLED=true
 ```
 
 This is still not fine-tuning of the LLM weights. It is durable experience/memory retrieval, which gives the LLM much better context over months or years.
+
+
+## V9.3 Web Learning + Desktop UI Upgrade
+
+V9.3 adds a request-driven web learning/search module and improves the native desktop interface.
+
+### Web learning commands
+
+```text
+/web-search <query>
+/web-learn <topic>
+/web-fetch <url>
+пошукай в інтернеті <запит>
+вивчи <тему>
+прочитай сайт <url>
+```
+
+Flow:
+
+```text
+voice/chat/desktop request
+→ natural action router
+→ web_learning module
+→ search/fetch sources
+→ optional LLM summary
+→ sourced semantic memory write
+→ SQLite/vector recall later
+```
+
+The module stores source URLs, domains, checked time, confidence and a compact learning note. It does not browse autonomously forever by default; it learns only when requested, so web learning stays controllable and auditable.
+
+New settings:
+
+```env
+WEB_LEARNING_ENABLED=true
+WEB_SEARCH_ENABLED=true
+WEB_LEARN_STORE_ENABLED=true
+WEB_SEARCH_MAX_RESULTS=5
+WEB_LEARN_MAX_SOURCES=4
+WEB_FETCH_TIMEOUT_SECONDS=12
+WEB_FETCH_MAX_CHARS_PER_PAGE=9000
+WEB_USER_AGENT=JAV-WebLearning/0.1
+```
+
+### Desktop UI upgrade
+
+The desktop app now uses a resizable split layout with tabs:
+
+```text
+Conversation panel
+Right tabs: Controls / Commands / Events
+Settings Center with search, scrollable groups and Browse buttons for paths/files
+```
+
+This fixes the old problem where settings/buttons could go off-screen on smaller displays.

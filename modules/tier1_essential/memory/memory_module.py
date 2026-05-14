@@ -652,6 +652,7 @@ class MemoryModule(CognitiveModule):
                 "memory_request",
                 "memory_status_requested",
                 "memory_search_requested",
+                "semantic_memory_store_requested",
                 "kernel_started",
             ],
         )
@@ -671,6 +672,8 @@ class MemoryModule(CognitiveModule):
             await self._handle_status(event.data)
         elif event.type == "memory_search_requested":
             await self._handle_search(event.data)
+        elif event.type == "semantic_memory_store_requested":
+            await self._handle_semantic_store(event.data)
 
     async def _handle_sensory(self, data: Dict[str, Any]) -> None:
         # Store in STM + WM
@@ -888,6 +891,30 @@ class MemoryModule(CognitiveModule):
             )
         self._kernel.event_bus.emit(
             Event(type="memory_search_completed", data={"query_text": query, "matches": matches}, source_module=self.module_id),
+            Priority.COGNITIVE,
+        )
+
+
+    async def _handle_semantic_store(self, data: Dict[str, Any]) -> None:
+        """Store a sourced semantic note/triple from modules such as web_learning."""
+        if self._kernel is None:
+            return
+        subject = str(data.get("subject") or "external_note").strip()[:240]
+        predicate = str(data.get("predicate") or "noted").strip()[:80]
+        obj = str(data.get("object") or data.get("text") or "").strip()
+        if not obj:
+            return
+        confidence = float(data.get("confidence", 0.72) or 0.72)
+        self._manager.semantic_store_triple(subject, predicate, obj[:4000], confidence=confidence)
+        episodic = {
+            "type": "semantic_memory_store",
+            "data": data,
+            "timestamp": time.time(),
+            "importance": float(data.get("importance", max(0.7, confidence)) or 0.75),
+        }
+        self._manager.episodic_store(episodic)
+        self._kernel.event_bus.emit(
+            Event(type="memory_stored", data={"type": "semantic", "status": "ok", "subject": subject, "source": data.get("source", "")}, source_module=self.module_id),
             Priority.COGNITIVE,
         )
 

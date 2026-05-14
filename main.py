@@ -155,7 +155,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /see, /self, /world, /memory, /recall, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit.\n")
+    print("Jarvis chat mode. Type /see, /self, /world, /memory, /recall, /web-search, /web-learn, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -183,6 +183,34 @@ async def run_with_chat(kernel: Kernel) -> None:
                     Priority.COGNITIVE,
                 )
                 await wait_action_response()
+                continue
+
+
+            if lower.startswith("/web-search "):
+                query = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="web_search_requested", data={"query": query, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=45.0)
+                continue
+
+            if lower.startswith("/web-learn ") or lower.startswith("/learn-web "):
+                topic = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="web_learn_requested", data={"topic": topic, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower.startswith("/web-fetch ") or lower.startswith("/read-url "):
+                url = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="web_fetch_requested", data={"url": url, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=60.0)
                 continue
 
             if lower in {"/actions", "/action-status", "/workspace"}:

@@ -1,8 +1,10 @@
 """Native desktop interface for JAV/Jarvis Brain Core.
 
-V8 Desktop MVP uses Tkinter, so it does not require a browser or Electron.
-It starts the kernel in a background thread through KernelAPI and talks to it
-through the event bus.
+V9.3 UI refresh:
+- resizable paned layout
+- right panel split into tabs instead of one tall column
+- quick actions are scrollable and stay inside the window
+- larger input area and cleaner event/status panels
 """
 from __future__ import annotations
 
@@ -22,8 +24,22 @@ from core.safety.permission_manager import PermissionLevel
 from main import build_kernel
 
 
+class ScrollableFrame(ttk.Frame):
+    def __init__(self, master, *args, **kwargs):
+        super().__init__(master, *args, **kwargs)
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg="#111722")
+        self.scroll = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.body = ttk.Frame(self.canvas)
+        self.window_id = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scroll.set)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.body.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.window_id, width=e.width))
+
+
 class DesktopApp:
-    """Small native desktop shell for Jarvis."""
+    """Native desktop shell for Jarvis."""
 
     def __init__(self, cfg: KernelConfig | None = None) -> None:
         self.cfg = cfg or KernelConfig()
@@ -35,59 +51,64 @@ class DesktopApp:
 
         self.root = tk.Tk()
         self.root.title("JAV — Jarvis Brain Core")
-        self.root.geometry("1040x720")
-        self.root.minsize(860, 560)
+        self.root.geometry("1180x760")
+        self.root.minsize(920, 620)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
         self._build_ui()
         self.api.start_in_background()
-        self._append("system", "JAV desktop interface started. Type a message, command, or use the buttons.")
+        self._append("system", "JAV desktop interface started. You can type normal requests, use voice/chat commands, or open Settings Center.")
         self._tick_ui()
 
-    # ------------------------------------------------------------------
-    # UI
-    # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        self.root.configure(bg="#101216")
+        self.root.configure(bg="#0e1117")
         style = ttk.Style(self.root)
         try:
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure("TFrame", background="#101216")
-        style.configure("TLabel", background="#101216", foreground="#dfe7f1")
-        style.configure("TButton", padding=8)
+        style.configure("TFrame", background="#0e1117")
+        style.configure("Card.TFrame", background="#111722")
+        style.configure("TLabel", background="#0e1117", foreground="#dce6f2")
+        style.configure("Card.TLabel", background="#111722", foreground="#dce6f2")
+        style.configure("TButton", padding=7)
         style.configure("Accent.TButton", padding=8)
+        style.configure("TNotebook", background="#0e1117", borderwidth=0)
+        style.configure("TNotebook.Tab", padding=(10, 5))
 
-        main = ttk.Frame(self.root)
-        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main = ttk.Frame(self.root, padding=10)
+        main.pack(fill=tk.BOTH, expand=True)
 
         header = ttk.Frame(main)
         header.pack(fill=tk.X)
-        self.title_label = ttk.Label(header, text="JAV / Jarvis Brain Core", font=("Segoe UI", 16, "bold"))
-        self.title_label.pack(side=tk.LEFT)
+        ttk.Label(header, text="JAV / Jarvis Brain Core", font=("Segoe UI", 17, "bold")).pack(side=tk.LEFT)
+        ttk.Button(header, text="Settings Center", command=self.open_settings).pack(side=tk.RIGHT, padx=(8, 0))
         self.status_label = ttk.Label(header, text="starting...", font=("Segoe UI", 10))
         self.status_label.pack(side=tk.RIGHT)
 
-        body = ttk.Frame(main)
-        body.pack(fill=tk.BOTH, expand=True, pady=(10, 8))
+        paned = ttk.Panedwindow(main, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        left = ttk.Frame(paned)
+        right = ttk.Frame(paned, width=330)
+        paned.add(left, weight=4)
+        paned.add(right, weight=1)
 
-        left = ttk.Frame(body)
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        right = ttk.Frame(body, width=260)
-        right.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
-
+        chat_card = ttk.Frame(left, style="Card.TFrame", padding=8)
+        chat_card.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(chat_card, text="Conversation", style="Card.TLabel", font=("Segoe UI", 11, "bold")).pack(anchor="w")
         self.chat = scrolledtext.ScrolledText(
-            left,
+            chat_card,
             wrap=tk.WORD,
             state=tk.DISABLED,
-            bg="#0b0d11",
+            bg="#080b10",
             fg="#e6edf5",
             insertbackground="#e6edf5",
             relief=tk.FLAT,
             font=("Consolas", 11),
+            padx=10,
+            pady=10,
         )
-        self.chat.pack(fill=tk.BOTH, expand=True)
+        self.chat.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
 
         input_row = ttk.Frame(left)
         input_row.pack(fill=tk.X, pady=(8, 0))
@@ -97,34 +118,58 @@ class DesktopApp:
         self.input_entry.bind("<Return>", lambda _e: self.send_message())
         ttk.Button(input_row, text="Send", command=self.send_message).pack(side=tk.RIGHT, padx=(8, 0))
 
-        ttk.Label(right, text="Controls", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 6))
-        ttk.Button(right, text="Read screen (/see)", command=self.read_screen).pack(fill=tk.X, pady=3)
-        ttk.Button(right, text="Sleep / consolidate", command=self.sleep_cycle).pack(fill=tk.X, pady=3)
-        ttk.Button(right, text="Action status", command=self.action_status).pack(fill=tk.X, pady=3)
-        ttk.Button(right, text="Memory / storage status", command=self.memory_status).pack(fill=tk.X, pady=3)
-        ttk.Button(right, text="Settings Center", command=self.open_settings).pack(fill=tk.X, pady=3)
-        ttk.Button(right, text="Safety L1", command=lambda: self.set_safety(1)).pack(fill=tk.X, pady=3)
-        ttk.Button(right, text="Safety L4 file-write", command=lambda: self.set_safety(4)).pack(fill=tk.X, pady=3)
-        ttk.Button(right, text="Safety L5 shell", command=lambda: self.set_safety(5)).pack(fill=tk.X, pady=3)
+        self._build_right_tabs(right)
 
-        ttk.Label(right, text="Fast commands", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(16, 6))
+    def _build_right_tabs(self, parent: ttk.Frame) -> None:
+        tabs = ttk.Notebook(parent)
+        tabs.pack(fill=tk.BOTH, expand=True)
+
+        controls = ScrollableFrame(tabs)
+        commands = ScrollableFrame(tabs)
+        events_tab = ttk.Frame(tabs, padding=6)
+        tabs.add(controls, text="Controls")
+        tabs.add(commands, text="Commands")
+        tabs.add(events_tab, text="Events")
+
+        def add_button(container, text, command):
+            ttk.Button(container.body, text=text, command=command).pack(fill=tk.X, pady=3, padx=4)
+
+        ttk.Label(controls.body, text="Main controls", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 6), padx=4)
+        add_button(controls, "Read screen", self.read_screen)
+        add_button(controls, "Sleep / consolidate", self.sleep_cycle)
+        add_button(controls, "Memory / storage status", self.memory_status)
+        add_button(controls, "Action status", self.action_status)
+        add_button(controls, "Web search help", lambda: self._prefill("пошукай в інтернеті "))
+        add_button(controls, "Web learn help", lambda: self._prefill("вивчи "))
+        add_button(controls, "Settings Center", self.open_settings)
+        ttk.Separator(controls.body).pack(fill=tk.X, pady=8, padx=4)
+        ttk.Label(controls.body, text="Safety", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 6), padx=4)
+        add_button(controls, "Safety L1 read-only", lambda: self.set_safety(1))
+        add_button(controls, "Safety L4 file-write", lambda: self.set_safety(4))
+        add_button(controls, "Safety L5 shell", lambda: self.set_safety(5))
+
+        ttk.Label(commands.body, text="Click to fill input", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 6), padx=4)
         examples = [
             "покажи стан пам'яті",
+            "згадай переносний диск",
             "прочитай файл README.md",
             "знайди error в .",
             "покажи файли .",
             "створи папку notes",
+            "запиши в notes/test.txt :: hello",
             "запусти python --version",
             "прочитай екран",
             "запусти сон",
             "покажи налаштування",
             "виправ помилки в .",
+            "пошукай в інтернеті latest Python release",
+            "вивчи як працює vector memory",
         ]
         for text in examples:
-            ttk.Button(right, text=text, command=lambda t=text: self._prefill(t)).pack(fill=tk.X, pady=2)
+            add_button(commands, text, lambda t=text: self._prefill(t))
 
-        ttk.Label(right, text="Recent events", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(16, 6))
-        self.event_list = tk.Listbox(right, height=12, bg="#0b0d11", fg="#b8c5d6", relief=tk.FLAT)
+        ttk.Label(events_tab, text="Recent events", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 6))
+        self.event_list = tk.Listbox(events_tab, height=20, bg="#080b10", fg="#b8c5d6", relief=tk.FLAT)
         self.event_list.pack(fill=tk.BOTH, expand=True)
 
     def _prefill(self, text: str) -> None:
@@ -152,8 +197,8 @@ class DesktopApp:
                 event = self.events.get_nowait()
                 label = f"{event.get('type')} ← {event.get('source_module')}"
                 self.event_list.insert(0, label)
-                if self.event_list.size() > 60:
-                    self.event_list.delete(60, tk.END)
+                if self.event_list.size() > 120:
+                    self.event_list.delete(120, tk.END)
         except queue.Empty:
             pass
 
@@ -164,9 +209,6 @@ class DesktopApp:
         self.status_label.configure(text=f"running={running} | modules={mods} | safety=L{safety}")
         self.root.after(250, self._tick_ui)
 
-    # ------------------------------------------------------------------
-    # Event bridge
-    # ------------------------------------------------------------------
     def _patch_event_tap(self) -> None:
         original_emit = self.kernel.event_bus.emit
 
@@ -179,20 +221,17 @@ class DesktopApp:
                     "data": event.data,
                     "timestamp": event.timestamp,
                 })
+                text = ""
                 if event.type == "response_generated":
                     text = str(event.data.get("text", "") or "").strip()
-                    if text:
-                        self.messages.put_nowait(("assistant", text))
                 elif event.type == "screen_parsed" and event.data.get("respond"):
-                    summary = str(event.data.get("summary", "") or "").strip()
-                    if summary:
-                        self.messages.put_nowait(("assistant", summary))
+                    text = str(event.data.get("summary", "") or "").strip()
                 elif event.type == "sleep_cycle_completed":
-                    summary = str(event.data.get("summary", "") or "").strip()
-                    if summary:
-                        self.messages.put_nowait(("assistant", "Sleep cycle completed. " + summary))
+                    text = "Sleep cycle completed. " + str(event.data.get("summary", "") or "").strip()
                 elif event.type == "action_result" and event.data.get("respond_fallback"):
-                    self.messages.put_nowait(("assistant", str(event.data)))
+                    text = str(event.data)
+                if text:
+                    self.messages.put_nowait(("assistant", text))
             except Exception:
                 pass
 
@@ -201,9 +240,6 @@ class DesktopApp:
     def emit(self, type_: str, data: Dict[str, Any], priority: Priority = Priority.COGNITIVE) -> None:
         self.api.emit_event(type_, data, priority)
 
-    # ------------------------------------------------------------------
-    # Commands
-    # ------------------------------------------------------------------
     def send_message(self) -> None:
         text = self.input_var.get().strip()
         if not text:
@@ -213,17 +249,17 @@ class DesktopApp:
 
         lower = text.lower()
         if lower in {"/see", "/screen", "/read-screen", "/explain-screen"}:
-            self.read_screen()
-            return
+            self.read_screen(); return
         if lower in {"/sleep", "/dream", "/consolidate", "/memory-consolidate"}:
-            self.sleep_cycle()
-            return
+            self.sleep_cycle(); return
         if lower in {"/actions", "/workspace", "/action-status"}:
-            self.action_status()
-            return
+            self.action_status(); return
         if lower in {"/memory", "/memory-status", "/storage"}:
-            self.memory_status()
-            return
+            self.memory_status(); return
+        if lower.startswith("/web-search "):
+            self.emit("web_search_requested", {"query": text.split(maxsplit=1)[1], "respond": True}, Priority.COGNITIVE); return
+        if lower.startswith("/web-learn "):
+            self.emit("web_learn_requested", {"topic": text.split(maxsplit=1)[1], "respond": True}, Priority.COGNITIVE); return
         if lower.startswith("/approve"):
             parts = text.split(maxsplit=1)
             if len(parts) == 2:
@@ -242,18 +278,10 @@ class DesktopApp:
         self.emit("user_utterance", {"text": text, "input_mode": "desktop"}, Priority.REALTIME)
 
     def read_screen(self) -> None:
-        self.emit(
-            "screen_capture_requested",
-            {"request_id": f"desktop_screen_{int(time.time())}", "reason": "desktop_button", "respond": True},
-            Priority.REALTIME,
-        )
+        self.emit("screen_capture_requested", {"request_id": f"desktop_screen_{int(time.time())}", "reason": "desktop_button", "respond": True}, Priority.REALTIME)
 
     def sleep_cycle(self) -> None:
-        self.emit(
-            "sleep_cycle_requested",
-            {"reason": "desktop_button", "force": True, "respond": True},
-            Priority.COGNITIVE,
-        )
+        self.emit("sleep_cycle_requested", {"reason": "desktop_button", "force": True, "respond": True}, Priority.COGNITIVE)
 
     def action_status(self) -> None:
         self.emit("action_status_requested", {"respond": True}, Priority.COGNITIVE)
@@ -265,7 +293,6 @@ class DesktopApp:
         SettingsWindow(self.root, on_saved=self._settings_saved)
 
     def _settings_saved(self, updates: Dict[str, str]) -> None:
-        # Apply settings that can safely change live. Deeper module settings are loaded on restart.
         try:
             actions = getattr(self.kernel.config, "actions", None)
             if actions is not None:
@@ -275,12 +302,7 @@ class DesktopApp:
                     actions.allow_shell = updates["ACTION_ALLOW_SHELL"].lower() == "true"
                 if "ACTIONS_V7_ENABLED" in updates:
                     actions.enabled = updates["ACTIONS_V7_ENABLED"].lower() == "true"
-            changed_paths = []
-            for key in ("JARVIS_DATA_DIR", "ACTION_WORKSPACE_PATH", "SCREENSHOT_DIR"):
-                if key in updates and updates[key]:
-                    changed_paths.append(f"{key}={updates[key]}")
-            extra = "\n" + "\n".join(changed_paths) if changed_paths else ""
-            self._append("system", "Settings saved. Restart JAV for all modules to reload memory paths, providers, voice, OCR and module options. Some action settings were applied live." + extra)
+            self._append("system", "Settings saved. Restart JAV for provider/path/voice/OCR/web-learning settings to fully reload. Some action settings were applied live.")
         except Exception as exc:
             self._append("system", f"Settings saved, but live apply failed: {exc}")
 

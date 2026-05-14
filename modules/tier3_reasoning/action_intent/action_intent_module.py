@@ -186,6 +186,24 @@ class ActionIntentModule(CognitiveModule):
         if any(p in lower for p in ["запусти сон", "консолідуй пам", "консолідація пам", "run sleep", "sleep cycle", "dream replay", "consolidate memory"]):
             return "event", "sleep_cycle_requested", {"force": True}, ""
 
+
+        # Web search / web learning.
+        m = re.search(r"(?:вивчи|навчися|досліди|изучи|research|learn about|learn|study)\s+(.+)$", raw, flags=re.IGNORECASE)
+        if m and not any(x in lower for x in ["файл", "files", "папку", "folder"]):
+            topic = m.group(1).strip().strip('"\'')
+            topic = re.sub(r"^(?:тему|topic|about)\s+", "", topic, flags=re.IGNORECASE).strip()
+            return "event", "web_learn_requested", {"topic": topic}, ""
+
+        m = re.search(r"(?:пошукай\s+в\s+інтернеті|пошукай\s+в\s+вебі|знайди\s+в\s+інтернеті|web search|search web|google|гугл(?:и)?|інтернет)\s+(.+)$", raw, flags=re.IGNORECASE)
+        if m:
+            query = m.group(1).strip().strip('"\'')
+            return "event", "web_search_requested", {"query": query}, ""
+
+        m = re.search(r"(?:прочитай\s+сайт|відкрий\s+сайт|fetch url|read url|прочитай\s+url)\s+(.+)$", raw, flags=re.IGNORECASE)
+        if m:
+            url = m.group(1).strip().strip('"\'')
+            return "event", "web_fetch_requested", {"url": url}, ""
+
         # Durable memory search / recall.
         m = re.search(r"(?:згадай|пригадай|пошукай(?:\s+в)?\s+пам|пошукай\s+у\s+пам|remember|recall|search memory|find in memory)\s+(.+)$", raw, flags=re.IGNORECASE)
         if m:
@@ -273,7 +291,7 @@ class ActionIntentModule(CognitiveModule):
             "supported_natural_intents": [
                 "screen_read", "sleep_consolidate", "self_status", "world_status", "settings_help",
                 "action_status", "set_safety", "approve_pending", "deny_pending", "list_files", "read_file",
-                "search_files", "create_dir", "write_file", "append_file", "run_command", "code_repair_v9", "apply_repair_proposal",
+                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal",
             ],
         })
         return base

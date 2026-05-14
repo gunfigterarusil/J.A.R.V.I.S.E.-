@@ -108,6 +108,11 @@ def main() -> None:
         "MEMORY_EPISODIC_RETENTION_DAYS": "3650",
         "MEMORY_EPISODIC_MAX_ITEMS": "100000",
         "MEMORY_SEARCH_TOP_K": "8",
+        "WEB_LEARNING_ENABLED": "true",
+        "WEB_SEARCH_ENABLED": "true",
+        "WEB_LEARN_STORE_ENABLED": "true",
+        "WEB_SEARCH_MAX_RESULTS": "5",
+        "WEB_LEARN_MAX_SOURCES": "4",
     })
     write_launchers(dst)
     print(f"Portable JAV installed to: {dst}")
