@@ -136,6 +136,7 @@ class DesktopApp:
 
         ttk.Label(controls.body, text="Main controls", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 6), padx=4)
         add_button(controls, "Read screen", self.read_screen)
+        add_button(controls, "Understand GUI", self.understand_gui)
         add_button(controls, "Sleep / consolidate", self.sleep_cycle)
         add_button(controls, "Memory / storage status", self.memory_status)
         add_button(controls, "Runtime / health status", self.runtime_status)
@@ -166,6 +167,7 @@ class DesktopApp:
             "запиши в notes/test.txt :: hello",
             "запусти python --version",
             "прочитай екран",
+            "проаналізуй екран і скажи що натиснути",
             "запусти сон",
             "покажи налаштування",
             "виправ помилки в .",
@@ -301,6 +303,9 @@ class DesktopApp:
 
     def read_screen(self) -> None:
         self.emit("screen_capture_requested", {"request_id": f"desktop_screen_{int(time.time())}", "reason": "desktop_button", "respond": True}, Priority.REALTIME)
+
+    def understand_gui(self) -> None:
+        self.emit("screen_understand_requested", {"request_id": f"desktop_gui_{int(time.time())}", "reason": "desktop_button", "mode": "gui_understanding", "respond": True}, Priority.REALTIME)
 
     def sleep_cycle(self) -> None:
         self.emit("sleep_cycle_requested", {"reason": "desktop_button", "force": True, "respond": True}, Priority.COGNITIVE)

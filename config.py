@@ -184,11 +184,18 @@ class ScreenConfig:
     enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_READING_ENABLED", "true").lower() == "true")
     auto_watch_enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_AUTO_WATCH_ENABLED", "false").lower() == "true")
     screenshot_dir: str = field(default_factory=_default_screenshot_dir)
-    ocr_backend: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_BACKEND", "tesseract"))  # tesseract for V3 MVP
+    ocr_backend: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_BACKEND", "tesseract"))  # tesseract for V3/V9.6 MVP
     ocr_language: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_LANGUAGE", "eng"))
     ocr_config: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_CONFIG", "--psm 6"))
     save_screenshots: bool = field(default_factory=lambda: os.environ.get("SCREEN_SAVE_SCREENSHOTS", "true").lower() == "true")
     max_ocr_chars: int = field(default_factory=lambda: int(os.environ.get("SCREEN_MAX_OCR_CHARS", "7000")))
+
+    # V9.6 GUI understanding / real-vision-lite. Understanding only; no clicks.
+    vision_enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_VISION_ENABLED", "true").lower() == "true")
+    gui_understanding_enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_GUI_UNDERSTANDING_ENABLED", "true").lower() == "true")
+    active_window_enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_ACTIVE_WINDOW_ENABLED", "true").lower() == "true")
+    max_ui_elements: int = field(default_factory=lambda: int(os.environ.get("SCREEN_MAX_UI_ELEMENTS", "40")))
+    min_ui_confidence: int = field(default_factory=lambda: int(os.environ.get("SCREEN_MIN_UI_CONFIDENCE", "35")))
 
 
 

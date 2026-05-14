@@ -188,7 +188,13 @@ class ActionIntentModule(CognitiveModule):
         if m:
             return "safety", "set_safety", {"level": int(m.group(1))}, ""
 
-        # Screen reading.
+        # Screen reading / GUI understanding.
+        if any(p in lower for p in [
+            "проаналізуй екран", "розбери екран", "розбери інтерфейс", "зрозумій екран",
+            "що натиснути", "куди натиснути", "яку кнопку", "analyze screen",
+            "understand screen", "understand gui", "analyze gui", "what should i click"
+        ]):
+            return "event", "screen_understand_requested", {"request_id": f"nl_gui_{int(time.time())}", "mode": "gui_understanding"}, ""
         if any(p in lower for p in ["що на екрані", "прочитай екран", "подивись на екран", "read the screen", "what is on screen", "look at the screen", "що тут не так"]):
             return "event", "screen_capture_requested", {"request_id": f"nl_screen_{int(time.time())}"}, ""
 
@@ -329,7 +335,7 @@ class ActionIntentModule(CognitiveModule):
             "require_explicit_verb": self.require_explicit_verb,
             "repair_agent_enabled": self.repair_agent_enabled,
             "supported_natural_intents": [
-                "screen_read", "sleep_consolidate", "self_status", "world_status", "settings_help",
+                "screen_read", "gui_understanding_v9_6", "sleep_consolidate", "self_status", "world_status", "settings_help",
                 "action_status", "set_safety", "approve_pending", "deny_pending", "list_files", "read_file",
                 "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4",
             ],

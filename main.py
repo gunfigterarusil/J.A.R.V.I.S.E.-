@@ -227,7 +227,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /see, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
+    print("Jarvis chat mode. Type /see, /vision, /gui, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -519,14 +519,16 @@ async def run_with_chat(kernel: Kernel) -> None:
                     print(f"- environment: {snap.get('environment')}\n")
                 continue
 
-            if user_text.lower() in {"/see", "/screen", "/read-screen", "/explain-screen"}:
+            if user_text.lower() in {"/see", "/screen", "/read-screen", "/explain-screen", "/vision", "/gui", "/understand-screen", "/analyze-screen"}:
                 request_id = f"cli_screen_{int(__import__('time').time())}"
+                is_gui = user_text.lower() in {"/vision", "/gui", "/understand-screen", "/analyze-screen"}
                 kernel.event_bus.emit(
                     __import__("core.event_bus", fromlist=["CognitiveEvent"]).CognitiveEvent(
-                        type="screen_capture_requested",
+                        type="screen_understand_requested" if is_gui else "screen_capture_requested",
                         data={
                             "request_id": request_id,
-                            "reason": "cli_user_requested_screen_read",
+                            "reason": "cli_user_requested_gui_understanding" if is_gui else "cli_user_requested_screen_read",
+                            "mode": "gui_understanding" if is_gui else "screen_read",
                             "respond": True,
                         },
                         source_module="cli_chat",

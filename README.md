@@ -540,6 +540,7 @@ Everything is stored in `~/.jarvis_brain/`:
 | V9.3 | ✅ Done | Web learning/search + improved desktop UI/settings usability |
 | V9.4 | ✅ Done | Autonomous task chains: guided/auto task plans with safety gates |
 | V9.5 | ✅ Done | Runtime / service mode: watchdog, heartbeat, rotating logs, health checks |
+| V9.6 | ✅ MVP Done | Real Vision + GUI Understanding: active window, UI/text elements, safe next-step suggestions |
 | V10 | Next | Android / server / robot bodies |
 
 
@@ -1339,3 +1340,75 @@ JAV/
 ```
 
 See `V9_5_RUNTIME_SERVICE_MODE_MVP.md` for setup details.
+
+
+---
+
+## V9.6 — Real Vision + GUI Understanding MVP
+
+Status: ✅ MVP Done
+
+V9.6 upgrades screen reading from raw OCR into a safer first version of visual/UI understanding. It still does **not** click or type automatically; it analyzes the screen and suggests next steps. Any future GUI control must go through V7 safety gates.
+
+### New chat commands
+
+```text
+/vision
+/gui
+/understand-screen
+/analyze-screen
+```
+
+Existing screen commands still work:
+
+```text
+/see
+/screen
+/read-screen
+/explain-screen
+```
+
+### Natural voice/chat examples
+
+```text
+проаналізуй екран
+розбери інтерфейс
+що натиснути?
+куди натиснути?
+analyze screen
+understand gui
+```
+
+### What V9.6 detects
+
+- screenshot dimensions and saved path;
+- active window title when `pygetwindow` can access it;
+- OCR text;
+- important error/warning/traceback blocks;
+- approximate UI/text elements with bounding boxes;
+- likely context, such as terminal traceback, code editor, browser, settings screen;
+- recommended next steps, such as using `/repair`, installing missing modules, checking permissions, or manually pressing visible buttons.
+
+### New settings
+
+```env
+SCREEN_VISION_ENABLED=true
+SCREEN_GUI_UNDERSTANDING_ENABLED=true
+SCREEN_ACTIVE_WINDOW_ENABLED=true
+SCREEN_MAX_UI_ELEMENTS=40
+SCREEN_MIN_UI_CONFIDENCE=35
+```
+
+### Dependency note
+
+The core still works without GUI dependencies. For best screen understanding install:
+
+```bash
+pip install mss Pillow pytesseract pygetwindow
+```
+
+System OCR is still required for Tesseract:
+
+```bash
+sudo apt install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ukr
+```

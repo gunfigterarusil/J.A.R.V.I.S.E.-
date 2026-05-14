@@ -70,6 +70,11 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
         SettingSpec("SCREEN_OCR_CONFIG", "OCR config", "--psm 6"),
         SettingSpec("SCREEN_SAVE_SCREENSHOTS", "Save screenshots", "true", kind="bool"),
         SettingSpec("SCREEN_MAX_OCR_CHARS", "Max OCR chars", "7000"),
+        SettingSpec("SCREEN_VISION_ENABLED", "Enable V9.6 visual analysis", "true", kind="bool"),
+        SettingSpec("SCREEN_GUI_UNDERSTANDING_ENABLED", "Enable GUI understanding", "true", kind="bool"),
+        SettingSpec("SCREEN_ACTIVE_WINDOW_ENABLED", "Detect active window title", "true", kind="bool"),
+        SettingSpec("SCREEN_MAX_UI_ELEMENTS", "Max UI elements returned", "40"),
+        SettingSpec("SCREEN_MIN_UI_CONFIDENCE", "Min OCR UI confidence", "35"),
         SettingSpec("TESSERACT_CMD", "Tesseract path", "", kind="file"),
     ],
     "Actions / Repair": [

@@ -14,10 +14,11 @@ numpy
 faster-whisper
 pyttsx3
 
-# V3 Screen Reading MVP
+# V3/V9.6 Screen Reading + GUI Understanding MVP
 mss
 Pillow
 pytesseract
+pygetwindow
 
 # Optional: build native desktop executable
 pyinstaller
