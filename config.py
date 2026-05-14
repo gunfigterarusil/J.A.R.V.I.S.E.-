@@ -135,6 +135,24 @@ class VoiceConfig:
 
 
 @dataclass
+class ScreenConfig:
+    """Screen reading settings for V3 OCR + ScreenParser.
+
+    Dependencies are optional until /see or screen_capture_requested is used.
+    Python: mss + Pillow + pytesseract
+    System: Tesseract OCR binary and language packs
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_READING_ENABLED", "true").lower() == "true")
+    auto_watch_enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_AUTO_WATCH_ENABLED", "false").lower() == "true")
+    screenshot_dir: str = field(default_factory=lambda: os.environ.get("SCREENSHOT_DIR", ""))
+    ocr_backend: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_BACKEND", "tesseract"))  # tesseract for V3 MVP
+    ocr_language: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_LANGUAGE", "eng"))
+    ocr_config: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_CONFIG", "--psm 6"))
+    save_screenshots: bool = field(default_factory=lambda: os.environ.get("SCREEN_SAVE_SCREENSHOTS", "true").lower() == "true")
+    max_ocr_chars: int = field(default_factory=lambda: int(os.environ.get("SCREEN_MAX_OCR_CHARS", "7000")))
+
+
+@dataclass
 class KernelConfig:
     """Top-level configuration for the PCA Kernel and Web UI.
 
@@ -175,6 +193,11 @@ class KernelConfig:
     # Voice interface
     # ------------------------------------------------------------------
     voice: VoiceConfig = field(default_factory=VoiceConfig)
+
+    # ------------------------------------------------------------------
+    # Screen reading / OCR interface
+    # ------------------------------------------------------------------
+    screen: ScreenConfig = field(default_factory=ScreenConfig)
 
     # ------------------------------------------------------------------
     # Logging

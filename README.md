@@ -173,7 +173,13 @@ This is the V1 real dialogue loop:
 user text → memory retrieval → LLMRouter → response_generated → dialogue history persistence
 ```
 
-Use this mode to test Jarvis before enabling voice or PC automation.
+Use this mode to test Jarvis before enabling voice or PC automation. You can also test V3 screen reading here:
+
+```text
+/see
+/read-screen
+/explain-screen
+```
 
 ### 4. Run with voice
 
@@ -475,8 +481,8 @@ Everything is stored in `~/.jarvis_brain/`:
 | V0 | ✅ Done | Kernel + modules + safety + imagination |
 | V1 | ✅ Done | Real LLM dialogue loop + relevant memory retrieval |
 | V2 | ✅ Stable MVP | Voice STT + V1 dialogue loop + Piper/pyttsx3 TTS fallback |
-| V3 | Next | Screen reading (OCR + ScreenParser) |
-| V4 | Planned | Rich emotions + monologue depth |
+| V3 | ✅ MVP Done | Screen reading (OCR + ScreenParser) |
+| V4 | Next | Rich emotions + monologue depth |
 | V5 | Planned | World model + self-model maturity |
 | V6 | Planned | Sleep/dream replay + memory consolidation |
 | V7 | Planned | PC automation via tier4_actions (safety-gated) |
@@ -530,6 +536,68 @@ VOICE_TTS_BACKEND=auto
 ```
 
 This prevents the microphone from immediately listening while Jarvis is still speaking.
+
+
+### V3 screen reading MVP details
+
+V3 is wired through `modules/tier2_perception/screen/screen_parser_module.py`. It is request-driven, not always watching the screen. This is intentional for privacy and performance.
+
+Flow:
+
+```text
+/see or voice command "what is on screen"
+  → screen_capture_requested
+  → screenshot via mss
+  → OCR via pytesseract/Tesseract
+  → lightweight ScreenParser
+  → screen_parsed + sensory_input
+  → response_generated
+```
+
+Chat commands:
+
+```bash
+python main.py --chat
+/see
+/read-screen
+/explain-screen
+```
+
+Voice triggers in `--voice` mode include:
+
+```text
+what is on screen
+read the screen
+що на екрані
+прочитай екран
+що тут не так
+```
+
+Install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Install the OCR binary on Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ukr
+```
+
+Important screen settings in `.env`:
+
+```env
+SCREEN_READING_ENABLED=true
+SCREEN_OCR_LANGUAGE=eng
+# For Ukrainian + English OCR after installing language packs:
+# SCREEN_OCR_LANGUAGE=eng+ukr
+SCREEN_AUTO_WATCH_ENABLED=false
+SCREEN_SAVE_SCREENSHOTS=true
+```
+
+Screenshots are saved to `~/.jarvis_brain/screenshots/` by default unless `SCREENSHOT_DIR` is set.
 
 ---
 

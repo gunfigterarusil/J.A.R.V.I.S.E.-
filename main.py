@@ -104,7 +104,7 @@ async def run_with_chat(kernel: Kernel) -> None:
     kernel.event_bus.emit = _capture_responses  # type: ignore[method-assign]
     kernel_task = asyncio.create_task(kernel.start())
 
-    print("Jarvis chat mode. Type /exit to stop.\n")
+    print("Jarvis chat mode. Type /see to read the screen, /exit to stop.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -113,14 +113,30 @@ async def run_with_chat(kernel: Kernel) -> None:
                 continue
             if user_text.lower() in {"/exit", "/quit", "exit", "quit"}:
                 break
-            kernel.event_bus.emit(
-                __import__("core.event_bus", fromlist=["CognitiveEvent"]).CognitiveEvent(
-                    type="user_utterance",
-                    data={"text": user_text, "input_mode": "cli"},
-                    source_module="cli_chat",
-                ),
-                __import__("core.event_bus", fromlist=["Priority"]).Priority.REALTIME,
-            )
+
+            if user_text.lower() in {"/see", "/screen", "/read-screen", "/explain-screen"}:
+                request_id = f"cli_screen_{int(__import__('time').time())}"
+                kernel.event_bus.emit(
+                    __import__("core.event_bus", fromlist=["CognitiveEvent"]).CognitiveEvent(
+                        type="screen_capture_requested",
+                        data={
+                            "request_id": request_id,
+                            "reason": "cli_user_requested_screen_read",
+                            "respond": True,
+                        },
+                        source_module="cli_chat",
+                    ),
+                    __import__("core.event_bus", fromlist=["Priority"]).Priority.REALTIME,
+                )
+            else:
+                kernel.event_bus.emit(
+                    __import__("core.event_bus", fromlist=["CognitiveEvent"]).CognitiveEvent(
+                        type="user_utterance",
+                        data={"text": user_text, "input_mode": "cli"},
+                        source_module="cli_chat",
+                    ),
+                    __import__("core.event_bus", fromlist=["Priority"]).Priority.REALTIME,
+                )
             try:
                 response = await asyncio.wait_for(response_queue.get(), timeout=90.0)
                 print(f"Jarvis: {response}\n")

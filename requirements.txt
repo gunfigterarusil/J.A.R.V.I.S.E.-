@@ -13,3 +13,8 @@ sounddevice
 numpy
 faster-whisper
 pyttsx3
+
+# V3 Screen Reading MVP
+mss
+Pillow
+pytesseract

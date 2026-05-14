@@ -95,14 +95,29 @@ class VoiceLoop:
                     print(f"\nYou: {text}")
 
                 self._emit_status("thinking", "User speech transcribed; waiting for dialogue response")
-                self.kernel.event_bus.emit(
-                    Event(
-                        type="user_utterance",
-                        data={"text": text, "input_mode": "voice", "raw_text": original_text},
-                        source_module="voice_loop",
-                    ),
-                    Priority.REALTIME,
-                )
+                if self._is_screen_read_command(text):
+                    self.kernel.event_bus.emit(
+                        Event(
+                            type="screen_capture_requested",
+                            data={
+                                "request_id": f"voice_screen_{int(__import__('time').time())}",
+                                "reason": "voice_user_requested_screen_read",
+                                "spoken_command": text,
+                                "respond": True,
+                            },
+                            source_module="voice_loop",
+                        ),
+                        Priority.REALTIME,
+                    )
+                else:
+                    self.kernel.event_bus.emit(
+                        Event(
+                            type="user_utterance",
+                            data={"text": text, "input_mode": "voice", "raw_text": original_text},
+                            source_module="voice_loop",
+                        ),
+                        Priority.REALTIME,
+                    )
 
                 response = await self._wait_for_response()
                 if response:
@@ -135,6 +150,24 @@ class VoiceLoop:
         idx = lower.find(self.wake_word)
         command = (text[:idx] + text[idx + len(self.wake_word):]).strip(" ,.:;!-—")
         return command or text
+
+    def _is_screen_read_command(self, text: str) -> bool:
+        lower = text.lower().strip()
+        triggers = (
+            "what is on screen",
+            "what's on screen",
+            "read the screen",
+            "explain the screen",
+            "що на екрані",
+            "що в мене на екрані",
+            "прочитай екран",
+            "поясни екран",
+            "що тут не так",
+            "что на экране",
+            "прочитай экран",
+            "объясни экран",
+        )
+        return any(trigger in lower for trigger in triggers)
 
     async def _wait_for_response(self) -> Optional[Dict[str, Any]]:
         try:
