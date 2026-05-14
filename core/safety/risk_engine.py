@@ -46,8 +46,15 @@ _ACTION_BASE_SCORES: Dict[str, float] = {
     "web_fetch": 1.5,
     # Tier 3 — application control
     "open_app": 2.5,
+    "open_url": 3.0,
     "switch_window": 2.0,
     "close_app": 3.0,
+    "gui_click": 5.2,
+    "gui_type_text": 5.5,
+    "gui_press": 4.2,
+    "gui_hotkey": 5.5,
+    "gui_scroll": 3.0,
+    "gui_wait": 1.0,
     # Tier 4 — file operations
     "read_file": 1.0,
     "list_files": 1.0,

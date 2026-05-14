@@ -227,7 +227,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /see, /vision, /gui, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
+    print("Jarvis chat mode. Type /see, /vision, /gui, /gui-task, /gui-auto, /gui-step, /gui-status, /gui-cancel, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -273,6 +273,51 @@ async def run_with_chat(kernel: Kernel) -> None:
                 await wait_action_response()
                 continue
 
+
+            if lower.startswith("/gui-task "):
+                goal = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="gui_task_requested", data={"goal": goal, "mode": "guided", "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower.startswith("/gui-auto "):
+                goal = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="gui_task_requested", data={"goal": goal, "mode": "auto", "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower in {"/gui-status", "/gui-tasks"} or lower.startswith("/gui-status "):
+                task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="gui_task_status_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+            if lower.startswith("/gui-step") or lower.startswith("/gui-continue"):
+                task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="gui_task_step_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower.startswith("/gui-cancel"):
+                task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="gui_task_cancel_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
 
             if lower.startswith("/web-search "):
                 query = user_text.split(maxsplit=1)[1].strip()
@@ -616,6 +661,10 @@ def init_portable_layout(target: str | None = None) -> Path:
         "RUNTIME_LOG_DIR": "data/brain/logs",
         "RUNTIME_HEARTBEAT_FILE": "data/brain/runtime_heartbeat.json",
         "RUNTIME_PID_FILE": "data/brain/runtime.pid",
+        "GUI_AUTOMATION_ENABLED": "true",
+        "GUI_AUTOMATION_AUTO_ENABLED": "false",
+        "GUI_AUTOMATION_MAX_STEPS": "12",
+        "GUI_AUTOMATION_BLOCK_SENSITIVE": "true",
     }
     existing = {line.split("=", 1)[0].strip() for line in lines if "=" in line and not line.lstrip().startswith("#")}
     out = list(lines)

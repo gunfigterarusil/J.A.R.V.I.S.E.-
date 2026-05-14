@@ -123,6 +123,10 @@ def main() -> None:
         "RUNTIME_LOG_DIR": "data/brain/logs",
         "RUNTIME_HEARTBEAT_FILE": "data/brain/runtime_heartbeat.json",
         "RUNTIME_PID_FILE": "data/brain/runtime.pid",
+        "GUI_AUTOMATION_ENABLED": "true",
+        "GUI_AUTOMATION_AUTO_ENABLED": "false",
+        "GUI_AUTOMATION_MAX_STEPS": "12",
+        "GUI_AUTOMATION_BLOCK_SENSITIVE": "true",
         "RUNTIME_HEARTBEAT_INTERVAL_SECONDS": "10",
         "RUNTIME_HEARTBEAT_STALE_SECONDS": "45",
     })

@@ -245,6 +245,25 @@ class ActionIntentModule(CognitiveModule):
         if any(p in lower for p in ["покажи налаштування", "відкрий налаштування", "settings", "налаштування"]):
             return "response", "settings", {}, "Налаштування доступні у Desktop → Settings Center. Там можна керувати LLM, голосом, OCR, action executor, safety, sleep, emotion, self/world model і web UI. З голосу/чату я можу змінювати live safety-рівень, а повні env-налаштування краще міняти через Settings Center."
 
+        # V9.7 general GUI automation: natural requests for desktop/browser/app control.
+        if any(p in lower for p in ["статус gui", "gui status", "статус гуі", "статус інтерфейс"]):
+            return "event", "gui_task_status_requested", {}, ""
+        if any(p in lower for p in ["продовжуй gui", "продовжуй гуі", "gui step", "наступний gui крок", "продовжуй інтерфейс"]):
+            m2 = re.search(r"(gt\d+)", lower)
+            return "event", "gui_task_step_requested", {"task_id": m2.group(1) if m2 else ""}, ""
+        if any(p in lower for p in ["скасуй gui", "cancel gui", "зупини gui", "зупини гуі"]):
+            m2 = re.search(r"(gt\d+)", lower)
+            return "event", "gui_task_cancel_requested", {"task_id": m2.group(1) if m2 else ""}, ""
+        gui_triggers = [
+            "знайди на ютуб", "на youtube", "на ютуб", "увімкни", "включи", "play ",
+            "відкрий браузер", "зайди в браузер", "натисни", "клікни", "click ",
+            "введи в", "напиши в полі", "керуй комп", "зроби на екрані", "через інтерфейс",
+            "open browser", "find on youtube", "search on youtube", "control the screen", "use the gui",
+        ]
+        if any(p in lower for p in gui_triggers):
+            mode = "auto" if any(x in lower for x in ["автоном", "сам", "самостійно", "auto"]) else "guided"
+            return "event", "gui_task_requested", {"goal": raw, "mode": mode, "respond": True}, ""
+
         # V9.4 task chains: broad goals, continuation, status, cancellation.
         m = re.search(r"(?:^|\b)(?:task|задача|ланцюг задач|цепочка задач)\s*(?:[:\-])?\s+(.+)$", raw, flags=re.IGNORECASE)
         if m:
@@ -337,7 +356,7 @@ class ActionIntentModule(CognitiveModule):
             "supported_natural_intents": [
                 "screen_read", "gui_understanding_v9_6", "sleep_consolidate", "self_status", "world_status", "settings_help",
                 "action_status", "set_safety", "approve_pending", "deny_pending", "list_files", "read_file",
-                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4",
+                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4", "gui_automation_v9_7",
             ],
         })
         return base

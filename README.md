@@ -541,6 +541,7 @@ Everything is stored in `~/.jarvis_brain/`:
 | V9.4 | ✅ Done | Autonomous task chains: guided/auto task plans with safety gates |
 | V9.5 | ✅ Done | Runtime / service mode: watchdog, heartbeat, rotating logs, health checks |
 | V9.6 | ✅ MVP Done | Real Vision + GUI Understanding: active window, UI/text elements, safe next-step suggestions |
+| V9.7 | ✅ MVP Done | Safe General GUI Automation: observe → reason → action → observe loop via safety gates |
 | V10 | Next | Android / server / robot bodies |
 
 
@@ -1412,3 +1413,74 @@ System OCR is still required for Tesseract:
 ```bash
 sudo apt install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ukr
 ```
+
+
+---
+
+## V9.7 — Safe General GUI Automation MVP
+
+Status: ✅ MVP Done
+
+V9.7 turns V9.6 screen understanding into a controlled GUI agent. It is **not** a hardcoded YouTube/browser script. The loop is general:
+
+```text
+user goal by voice/chat/desktop
+→ observe screen with V9.6
+→ LLM/heuristic chooses one small next action
+→ V7 safety firewall + permission level + confirmation
+→ pyautogui/webbrowser executes the approved step
+→ observe again
+```
+
+Example:
+
+```text
+Джарвіс, знайди музику на YouTube і включи щось спокійне.
+```
+
+The first step can open a YouTube search page. Further clicking/typing is selected from the current screen state and still goes through safety gates. This makes the agent adaptable to different interfaces instead of being locked to one scenario.
+
+### Commands
+
+```text
+/gui-task <goal>
+/gui-auto <goal>
+/gui-step [task_id]
+/gui-status [task_id]
+/gui-cancel [task_id]
+```
+
+### Natural voice/chat examples
+
+```text
+знайди музику на YouTube
+відкрий браузер і знайди документацію Python
+натисни кнопку Continue
+введи в поле пошуку lofi music
+продовжуй GUI задачу
+статус GUI
+```
+
+### Safety model
+
+V9.7 refuses or blocks sensitive actions such as passwords, tokens, payments, purchases and irreversible confirmations. Risky GUI actions require safety level/confirmation. Voice cannot bypass the same firewall used by file actions and shell commands.
+
+### New settings
+
+```env
+GUI_AUTOMATION_ENABLED=true
+GUI_AUTOMATION_AUTO_ENABLED=false
+GUI_AUTOMATION_MAX_STEPS=12
+GUI_AUTOMATION_STEP_DELAY_SECONDS=1.0
+GUI_AUTOMATION_REQUIRE_CONFIRMATION=true
+GUI_AUTOMATION_BLOCK_SENSITIVE=true
+GUI_AUTOMATION_ALLOWED_ACTIONS=observe,done,open_url,open_app,click_xy,click_text,type_text,press,hotkey,scroll,wait
+```
+
+### Dependencies
+
+```bash
+pip install pyautogui
+```
+
+On Linux, GUI automation also requires a real desktop session and may need OS packages for screenshots/keyboard/mouse integration.

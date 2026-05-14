@@ -97,6 +97,15 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
         SettingSpec("TASK_CHAINS_MAX_STEPS", "Task chain max steps", "8"),
         SettingSpec("TASK_CHAINS_STEP_TIMEOUT_SECONDS", "Task step timeout seconds", "90"),
     ],
+    "GUI Automation": [
+        SettingSpec("GUI_AUTOMATION_ENABLED", "Enable V9.7 GUI automation", "true", kind="bool"),
+        SettingSpec("GUI_AUTOMATION_AUTO_ENABLED", "Allow auto GUI multi-step mode", "false", kind="bool"),
+        SettingSpec("GUI_AUTOMATION_MAX_STEPS", "Max GUI steps", "12"),
+        SettingSpec("GUI_AUTOMATION_STEP_DELAY_SECONDS", "Delay between GUI steps", "1.0"),
+        SettingSpec("GUI_AUTOMATION_REQUIRE_CONFIRMATION", "Require confirmation for risky GUI actions", "true", kind="bool"),
+        SettingSpec("GUI_AUTOMATION_BLOCK_SENSITIVE", "Block passwords/payments/secrets", "true", kind="bool"),
+        SettingSpec("GUI_AUTOMATION_ALLOWED_ACTIONS", "Allowed GUI action names", "observe,done,open_url,open_app,click_xy,click_text,type_text,press,hotkey,scroll,wait", kind="list"),
+    ],
     "Memory / Sleep": [
         SettingSpec("MEMORY_STM_LIFETIME_SECONDS", "Short-term memory lifetime seconds", "30"),
         SettingSpec("MEMORY_EPISODIC_RETENTION_DAYS", "Episodic retention days", "730"),

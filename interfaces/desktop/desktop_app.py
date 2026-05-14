@@ -147,6 +147,9 @@ class DesktopApp:
         add_button(controls, "Task status", self.task_status)
         add_button(controls, "Continue task", self.task_step)
         add_button(controls, "New task help", lambda: self._prefill("розберися з "))
+        add_button(controls, "GUI task help", lambda: self._prefill("знайди музику на YouTube "))
+        add_button(controls, "GUI status", self.gui_status)
+        add_button(controls, "Continue GUI", self.gui_step)
         add_button(controls, "Settings Center", self.open_settings)
         ttk.Separator(controls.body).pack(fill=tk.X, pady=8, padx=4)
         ttk.Label(controls.body, text="Safety", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 6), padx=4)
@@ -176,6 +179,9 @@ class DesktopApp:
             "розберися з помилками в .",
             "продовжуй задачу",
             "статус задачі",
+            "знайди музику на YouTube",
+            "продовжуй GUI задачу",
+            "статус GUI",
         ]
         for text in examples:
             add_button(commands, text, lambda t=text: self._prefill(t))
@@ -280,6 +286,16 @@ class DesktopApp:
             self.emit("task_chain_requested", {"goal": text.split(maxsplit=1)[1].strip(), "autonomy": "guided", "respond": True}, Priority.COGNITIVE); return
         if lower.startswith("/task-auto "):
             self.emit("task_chain_requested", {"goal": text.split(maxsplit=1)[1].strip(), "autonomy": "auto", "respond": True}, Priority.COGNITIVE); return
+        if lower.startswith("/gui-task "):
+            self.emit("gui_task_requested", {"goal": text.split(maxsplit=1)[1].strip(), "mode": "guided", "respond": True}, Priority.COGNITIVE); return
+        if lower.startswith("/gui-auto "):
+            self.emit("gui_task_requested", {"goal": text.split(maxsplit=1)[1].strip(), "mode": "auto", "respond": True}, Priority.COGNITIVE); return
+        if lower in {"/gui-status", "/gui-tasks"} or lower.startswith("/gui-status "):
+            self.emit("gui_task_status_requested", {"task_id": text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) > 1 else "", "respond": True}, Priority.COGNITIVE); return
+        if lower.startswith("/gui-step") or lower.startswith("/gui-continue"):
+            self.emit("gui_task_step_requested", {"task_id": text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) > 1 else "", "respond": True}, Priority.COGNITIVE); return
+        if lower.startswith("/gui-cancel"):
+            self.emit("gui_task_cancel_requested", {"task_id": text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) > 1 else "", "respond": True}, Priority.COGNITIVE); return
         if lower.startswith("/web-search "):
             self.emit("web_search_requested", {"query": text.split(maxsplit=1)[1], "respond": True}, Priority.COGNITIVE); return
         if lower.startswith("/web-learn "):
@@ -318,6 +334,12 @@ class DesktopApp:
 
     def task_status(self) -> None:
         self.emit("task_chain_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def gui_status(self) -> None:
+        self.emit("gui_task_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def gui_step(self) -> None:
+        self.emit("gui_task_step_requested", {"respond": True}, Priority.COGNITIVE)
 
     def runtime_status(self) -> None:
         self.emit("runtime_status_requested", {"respond": True}, Priority.COGNITIVE)

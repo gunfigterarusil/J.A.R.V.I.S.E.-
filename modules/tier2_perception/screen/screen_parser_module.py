@@ -478,6 +478,8 @@ class ScreenParserModule(CognitiveModule):
         if not self.kernel:
             return
         data = result.to_event_data()
+        if parent.data.get("gui_task_id"):
+            data["gui_task_id"] = parent.data.get("gui_task_id")
         self.last_result = data
 
         if result.ok:

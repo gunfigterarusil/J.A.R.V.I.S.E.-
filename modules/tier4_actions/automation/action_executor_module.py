@@ -13,7 +13,9 @@ import logging
 import os
 import shlex
 import subprocess
+import sys
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -33,10 +35,10 @@ class PendingAction:
 
 
 class ActionExecutorModule(CognitiveModule):
-    """Executes approved V7 actions: list/read/search/write/mkdir/run-safe-command."""
+    """Executes approved V7 actions: files, commands and V9.7 safe GUI actions."""
 
-    MODULE_DESCRIPTION = "V7 sandboxed file and command action executor"
-    MODULE_VERSION = "0.1.0"
+    MODULE_DESCRIPTION = "V7/V9.7 sandboxed file, command and safe GUI action executor"
+    MODULE_VERSION = "0.2.0"
 
     def __init__(self) -> None:
         super().__init__(module_id="action_executor", cost={"cpu": 0.10, "gpu": 0.0, "ram": 0.05})
@@ -161,6 +163,22 @@ class ActionExecutorModule(CognitiveModule):
                 result = await asyncio.to_thread(self._create_dir, payload)
             elif action_type == "run_command":
                 result = await asyncio.to_thread(self._run_command, payload)
+            elif action_type == "open_url":
+                result = await asyncio.to_thread(self._open_url, payload)
+            elif action_type == "open_app":
+                result = await asyncio.to_thread(self._open_app, payload)
+            elif action_type == "gui_click":
+                result = await asyncio.to_thread(self._gui_click, payload)
+            elif action_type == "gui_type_text":
+                result = await asyncio.to_thread(self._gui_type_text, payload)
+            elif action_type == "gui_press":
+                result = await asyncio.to_thread(self._gui_press, payload)
+            elif action_type == "gui_hotkey":
+                result = await asyncio.to_thread(self._gui_hotkey, payload)
+            elif action_type == "gui_scroll":
+                result = await asyncio.to_thread(self._gui_scroll, payload)
+            elif action_type == "gui_wait":
+                result = await asyncio.to_thread(self._gui_wait, payload)
             else:
                 result = {"ok": False, "error": f"Unsupported V7 action: {action_type}"}
         except Exception as exc:
@@ -346,6 +364,8 @@ class ActionExecutorModule(CognitiveModule):
                 f"Command finished with code {result.get('returncode')}.\n"
                 f"STDOUT:\n{result.get('stdout','')}\nSTDERR:\n{result.get('stderr','')}"
             ).strip()
+        if action in {"open_url", "open_app", "gui_click", "gui_type_text", "gui_press", "gui_hotkey", "gui_scroll", "gui_wait"}:
+            return f"GUI action completed: {action} — {json.dumps(result, ensure_ascii=False)[:900]}"
         return f"{action} completed: {json.dumps(result, ensure_ascii=False)[:1200]}"
 
     async def _emit_response(self, text: str, data: Optional[Dict[str, Any]] = None, event_type: str = "response_generated") -> None:

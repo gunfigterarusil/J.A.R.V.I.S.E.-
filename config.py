@@ -279,6 +279,29 @@ class TaskChainConfig:
     max_steps: int = field(default_factory=lambda: int(os.environ.get("TASK_CHAINS_MAX_STEPS", "8")))
     step_timeout_seconds: float = field(default_factory=lambda: float(os.environ.get("TASK_CHAINS_STEP_TIMEOUT_SECONDS", "90")))
 
+
+@dataclass
+class GuiAutomationConfig:
+    """V9.7 safe general GUI automation settings.
+
+    This enables a small-action GUI loop: observe screen -> LLM chooses one
+    allowed GUI step -> V7 safety -> execute -> observe again. It is not a
+    hardcoded YouTube/browser script; YouTube is only one possible task.
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("GUI_AUTOMATION_ENABLED", "true").lower() == "true")
+    auto_enabled: bool = field(default_factory=lambda: os.environ.get("GUI_AUTOMATION_AUTO_ENABLED", "false").lower() == "true")
+    max_steps: int = field(default_factory=lambda: int(os.environ.get("GUI_AUTOMATION_MAX_STEPS", "12")))
+    step_delay_seconds: float = field(default_factory=lambda: float(os.environ.get("GUI_AUTOMATION_STEP_DELAY_SECONDS", "1.0")))
+    require_confirmation: bool = field(default_factory=lambda: os.environ.get("GUI_AUTOMATION_REQUIRE_CONFIRMATION", "true").lower() == "true")
+    block_sensitive: bool = field(default_factory=lambda: os.environ.get("GUI_AUTOMATION_BLOCK_SENSITIVE", "true").lower() == "true")
+    allowed_actions: List[str] = field(default_factory=lambda: [
+        x.strip() for x in os.environ.get(
+            "GUI_AUTOMATION_ALLOWED_ACTIONS",
+            "observe,done,open_url,open_app,click_xy,click_text,type_text,press,hotkey,scroll,wait"
+        ).split(",") if x.strip()
+    ])
+
+
 @dataclass
 class ActionConfig:
     """V7 safe PC automation settings.
@@ -456,6 +479,7 @@ class KernelConfig:
     # V7 safe PC automation / tier4_actions
     # ------------------------------------------------------------------
     actions: ActionConfig = field(default_factory=ActionConfig)
+    gui_automation: GuiAutomationConfig = field(default_factory=GuiAutomationConfig)
     natural_actions: NaturalActionConfig = field(default_factory=NaturalActionConfig)
     code_repair: CodeRepairConfig = field(default_factory=CodeRepairConfig)
     task_chains: TaskChainConfig = field(default_factory=TaskChainConfig)
