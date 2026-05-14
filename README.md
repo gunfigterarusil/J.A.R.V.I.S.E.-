@@ -471,6 +471,8 @@ Everything is stored in `~/.jarvis_brain/`:
 | `permissions.json` | Granted/denied action overrides |
 | `idea_memory.json` | Generated theories and hypotheses |
 | `audit.jsonl` | Append-only log of all action attempts |
+| `affective_state_v4.json` | V4 emotion/mood/style state |
+| `monologue_state_v4.json` | V4 internal monologue buffer, open questions, focus stack |
 
 ---
 
@@ -482,8 +484,8 @@ Everything is stored in `~/.jarvis_brain/`:
 | V1 | ✅ Done | Real LLM dialogue loop + relevant memory retrieval |
 | V2 | ✅ Stable MVP | Voice STT + V1 dialogue loop + Piper/pyttsx3 TTS fallback |
 | V3 | ✅ MVP Done | Screen reading (OCR + ScreenParser) |
-| V4 | Next | Rich emotions + monologue depth |
-| V5 | Planned | World model + self-model maturity |
+| V4 | ✅ MVP Done | Rich emotions + deep internal monologue |
+| V5 | Next | World model + self-model maturity |
 | V6 | Planned | Sleep/dream replay + memory consolidation |
 | V7 | Planned | PC automation via tier4_actions (safety-gated) |
 | V8 | Planned | Android / server / robot bodies |
@@ -598,6 +600,54 @@ SCREEN_SAVE_SCREENSHOTS=true
 ```
 
 Screenshots are saved to `~/.jarvis_brain/screenshots/` by default unless `SCREENSHOT_DIR` is set.
+
+
+### V4 emotion + deep monologue MVP details
+
+V4 upgrades the affective and self-narration layers. It does not claim human feelings; it gives the runtime a bounded internal state that helps with tone, prioritization, memory tags, and future dashboard/sleep systems.
+
+Main files:
+
+```text
+modules/tier1_essential/emotions/emotion_module.py
+modules/tier3_reasoning/monologue/monologue_module.py
+modules/tier3_reasoning/llm/llm_module.py
+```
+
+Flow:
+
+```text
+user_utterance / memory_retrieved / screen_parsed / goal events
+  → affective appraisal
+  → emotional_state + response_style_hint
+  → deep internal_monologue + monologue_state
+  → LLM prompt receives affect/style/monologue context
+  → response_generated adapts tone without becoming melodramatic
+```
+
+The V4 emotional state tracks:
+
+```text
+emotion, mood, valence, arousal, dominance, curiosity, frustration,
+confidence, social_warmth, cognitive_load, response_style, triggers
+```
+
+Important V4 settings in `.env`:
+
+```env
+EMOTION_V4_ENABLED=true
+EMOTION_STATE_EMIT_INTERVAL=4.0
+EMOTION_DECAY_STRENGTH=0.985
+MONOLOGUE_V4_ENABLED=true
+MONOLOGUE_INTERVAL=6.0
+```
+
+Persisted files in `~/.jarvis_brain/` now also include:
+
+```text
+affective_state_v4.json
+monologue_state_v4.json
+```
 
 ---
 

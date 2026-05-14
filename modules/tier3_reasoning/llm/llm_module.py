@@ -44,6 +44,9 @@ class LLMModule(CognitiveModule):
         self._turn_counter = 0
         self._active_generation = 0
         self._last_response: str = ""
+        self._affective_context: dict = {}
+        self._style_hint: str = "calm-direct"
+        self._monologue_context: dict = {}
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -60,6 +63,10 @@ class LLMModule(CognitiveModule):
                 "sensory_input",
                 "self_model_updated",
                 "wm_updated",
+                "emotional_state",
+                "response_style_hint",
+                "monologue_state",
+                "internal_monologue",
             ],
         )
 
@@ -77,6 +84,19 @@ class LLMModule(CognitiveModule):
             self._self_context = event.data or {}
         elif et == "wm_updated":
             self._wm_context = event.data.get("snapshot", [])
+        elif et == "emotional_state":
+            self._affective_context = dict(event.data or {})
+            self._style_hint = self._affective_context.get("response_style", self._style_hint)
+        elif et == "response_style_hint":
+            self._style_hint = str(event.data.get("style", self._style_hint))
+            affect = event.data.get("affect")
+            if isinstance(affect, dict):
+                self._affective_context.update(affect)
+        elif et == "monologue_state":
+            self._monologue_context = dict(event.data or {})
+        elif et == "internal_monologue":
+            latest = event.data if isinstance(event.data, dict) else {"text": str(event.data)}
+            self._monologue_context["latest"] = latest
 
     async def _handle_user_utterance(self, event: Event) -> None:
         text = str(event.data.get("text", "") or "").strip()
@@ -222,11 +242,13 @@ class LLMModule(CognitiveModule):
         name = self._self_context.get("identity_name", "Jarvis")
         role = self._self_context.get("role", "personal cognitive assistant")
         style = self._self_context.get("communication_style", "direct, useful, and precise")
+        affect_style = self._style_hint or "calm-direct"
         return (
-            f"You are {name}, a {role}. Communication style: {style}. "
+            f"You are {name}, a {role}. Communication style: {style}. Current adaptive style: {affect_style}. "
             "You are not a stateless chatbot: you are the language/reasoning cortex inside a persistent modular brain. "
             "Use retrieved memory when it is relevant, but do not invent memories. "
             "Answer in the same language as the user unless they ask otherwise. "
+            "Use the affective state only to tune tone and prioritization; do not pretend to have human feelings. "
             "Be practical, concise, and honest about uncertainty. "
             "For technical work, prefer concrete steps and exact commands."
         )
@@ -237,6 +259,14 @@ class LLMModule(CognitiveModule):
         history = self._format_history()
         if history:
             sections.append("Recent dialogue:\n" + history)
+
+        affect = self._format_affective_context()
+        if affect:
+            sections.append("Current affective / style context:\n" + affect)
+
+        monologue = self._format_monologue_context()
+        if monologue:
+            sections.append("Internal monologue context:\n" + monologue)
 
         wm = self._format_working_memory(memory_data.get("wm_snapshot") or self._wm_context)
         if wm:
@@ -252,10 +282,43 @@ class LLMModule(CognitiveModule):
 
         sections.append("Current user message:\n" + user_text)
         sections.append(
-            "Respond as Jarvis. Use the memory only when it helps. "
+            "Respond as Jarvis. Use memory and internal monologue only when they help. "
+            "Adapt tone to the style context, but keep the answer useful and not melodramatic. "
             "Do not mention internal event names unless the user asks about the architecture."
         )
         return "\n\n---\n\n".join(sections)
+
+
+    def _format_affective_context(self) -> str:
+        if not self._affective_context:
+            return ""
+        keys = ["emotion", "mood", "response_style", "valence", "arousal", "curiosity", "frustration", "confidence", "cognitive_load"]
+        parts = []
+        for key in keys:
+            if key in self._affective_context:
+                val = self._affective_context.get(key)
+                if isinstance(val, float):
+                    val = round(val, 3)
+                parts.append(f"{key}: {val}")
+        triggers = self._affective_context.get("triggers") or []
+        if triggers:
+            parts.append("recent triggers: " + ", ".join(map(str, triggers[-5:])))
+        return "\n".join(f"- {p}" for p in parts)
+
+    def _format_monologue_context(self) -> str:
+        if not self._monologue_context:
+            return ""
+        lines = []
+        latest = self._monologue_context.get("latest")
+        if isinstance(latest, dict) and latest.get("text"):
+            lines.append(f"latest thought: {str(latest.get('text'))[:700]}")
+        open_questions = self._monologue_context.get("open_questions") or []
+        if open_questions:
+            lines.append("open questions: " + "; ".join(str(q)[:180] for q in open_questions[-3:]))
+        focus_stack = self._monologue_context.get("focus_stack") or []
+        if focus_stack:
+            lines.append("focus: " + "; ".join(str(f)[:180] for f in focus_stack[-3:]))
+        return "\n".join(f"- {line}" for line in lines)
 
     def _format_history(self) -> str:
         if not self._history:
@@ -402,6 +465,8 @@ class LLMModule(CognitiveModule):
         base["thinking_mode"] = self._current_mode
         base["active_generation"] = self._active_generation
         base["last_response_preview"] = self._last_response[:120]
+        base["style_hint"] = self._style_hint
+        base["affect"] = {k: self._affective_context.get(k) for k in ("emotion", "mood", "response_style", "curiosity", "frustration", "confidence")}
         return base
 
 

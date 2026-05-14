@@ -152,6 +152,27 @@ class ScreenConfig:
     max_ocr_chars: int = field(default_factory=lambda: int(os.environ.get("SCREEN_MAX_OCR_CHARS", "7000")))
 
 
+
+
+@dataclass
+class EmotionConfig:
+    """V4 affective state settings.
+
+    This is not a human emotion simulator; it is a bounded internal state used
+    to tune dialogue style, monologue depth, attention, and memory tags.
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("EMOTION_V4_ENABLED", "true").lower() == "true")
+    state_emit_interval: float = field(default_factory=lambda: float(os.environ.get("EMOTION_STATE_EMIT_INTERVAL", "4.0")))
+    decay_strength: float = field(default_factory=lambda: float(os.environ.get("EMOTION_DECAY_STRENGTH", "0.985")))
+
+
+@dataclass
+class MonologueConfig:
+    """V4 deep internal monologue settings."""
+    enabled: bool = field(default_factory=lambda: os.environ.get("MONOLOGUE_V4_ENABLED", "true").lower() == "true")
+    interval: float = field(default_factory=lambda: float(os.environ.get("MONOLOGUE_INTERVAL", "6.0")))
+
+
 @dataclass
 class KernelConfig:
     """Top-level configuration for the PCA Kernel and Web UI.
@@ -188,6 +209,12 @@ class KernelConfig:
         origin.strip() for origin in os.environ.get("WEB_CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000").split(",")
         if origin.strip()
     ])
+
+    # ------------------------------------------------------------------
+    # V4 affective state / monologue
+    # ------------------------------------------------------------------
+    emotion: EmotionConfig = field(default_factory=EmotionConfig)
+    monologue: MonologueConfig = field(default_factory=MonologueConfig)
 
     # ------------------------------------------------------------------
     # Voice interface
