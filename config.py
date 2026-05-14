@@ -171,6 +171,22 @@ class WorldModelConfig:
     max_open_loops: int = field(default_factory=lambda: int(os.environ.get("WORLD_MODEL_MAX_OPEN_LOOPS", "25")))
 
 
+
+
+@dataclass
+class SleepConfig:
+    """V6 sleep / dream replay / memory consolidation settings."""
+    enabled: bool = field(default_factory=lambda: os.environ.get("SLEEP_V6_ENABLED", "true").lower() == "true")
+    auto_enabled: bool = field(default_factory=lambda: os.environ.get("SLEEP_AUTO_ENABLED", "true").lower() == "true")
+    auto_interval: float = field(default_factory=lambda: float(os.environ.get("SLEEP_AUTO_INTERVAL", "900")))
+    idle_threshold: float = field(default_factory=lambda: float(os.environ.get("SLEEP_IDLE_THRESHOLD", "90")))
+    energy_threshold: float = field(default_factory=lambda: float(os.environ.get("SLEEP_ENERGY_THRESHOLD", "0.38")))
+    manual_min_gap: float = field(default_factory=lambda: float(os.environ.get("SLEEP_MANUAL_MIN_GAP", "3.0")))
+    max_replay_events: int = field(default_factory=lambda: int(os.environ.get("SLEEP_MAX_REPLAY_EVENTS", "80")))
+    max_dialogue_pairs: int = field(default_factory=lambda: int(os.environ.get("SLEEP_MAX_DIALOGUE_PAIRS", "24")))
+    max_lessons_per_cycle: int = field(default_factory=lambda: int(os.environ.get("SLEEP_MAX_LESSONS_PER_CYCLE", "8")))
+
+
 @dataclass
 class EmotionConfig:
     """V4 affective state settings.
@@ -238,6 +254,12 @@ class KernelConfig:
     # ------------------------------------------------------------------
     self_model: SelfModelConfig = field(default_factory=SelfModelConfig)
     world_model: WorldModelConfig = field(default_factory=WorldModelConfig)
+
+
+    # ------------------------------------------------------------------
+    # V6 sleep / dream replay / memory consolidation
+    # ------------------------------------------------------------------
+    sleep: SleepConfig = field(default_factory=SleepConfig)
 
     # ------------------------------------------------------------------
     # Voice interface

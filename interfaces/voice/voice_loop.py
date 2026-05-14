@@ -109,6 +109,20 @@ class VoiceLoop:
                         ),
                         Priority.REALTIME,
                     )
+                elif self._is_sleep_command(text):
+                    self.kernel.event_bus.emit(
+                        Event(
+                            type="sleep_cycle_requested",
+                            data={
+                                "reason": "voice_user_requested_sleep_cycle",
+                                "spoken_command": text,
+                                "force": True,
+                                "respond": True,
+                            },
+                            source_module="voice_loop",
+                        ),
+                        Priority.COGNITIVE,
+                    )
                 else:
                     self.kernel.event_bus.emit(
                         Event(
@@ -169,6 +183,24 @@ class VoiceLoop:
         )
         return any(trigger in lower for trigger in triggers)
 
+
+    def _is_sleep_command(self, text: str) -> bool:
+        lower = text.lower().strip()
+        triggers = (
+            "run sleep cycle",
+            "start sleep cycle",
+            "consolidate memory",
+            "memory consolidation",
+            "dream replay",
+            "запусти сон",
+            "режим сну",
+            "консолідуй пам'ять",
+            "консолідуй память",
+            "консолідація пам'яті",
+            "консолидация памяти",
+        )
+        return any(trigger in lower for trigger in triggers)
+
     async def _wait_for_response(self) -> Optional[Dict[str, Any]]:
         try:
             return await asyncio.wait_for(self._response_queue.get(), timeout=self.response_timeout)
@@ -209,6 +241,9 @@ class VoiceLoop:
                 return
             if event.type == "response_generated":
                 data = dict(event.data or {})
+                loop.call_soon_threadsafe(self._response_queue.put_nowait, data)
+            elif event.type == "sleep_cycle_completed":
+                data = {"text": "Sleep cycle completed. " + str((event.data or {}).get("summary", "")), "turn_id": "sleep_cycle"}
                 loop.call_soon_threadsafe(self._response_queue.put_nowait, data)
             elif event.type in {"tts_spoken", "tts_error"}:
                 data = dict(event.data or {})

@@ -49,6 +49,7 @@ class LLMModule(CognitiveModule):
         self._monologue_context: dict = {}
         self._world_context: dict = {}
         self._self_reflection: str = ""
+        self._consolidation_context: dict = {}
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -73,6 +74,10 @@ class LLMModule(CognitiveModule):
                 "world_model_updated",
                 "self_reflection",
                 "capability_model_updated",
+                "memory_consolidated",
+                "sleep_cycle_completed",
+                "dream_narrative",
+                "consolidation_lesson",
             ],
         )
 
@@ -110,6 +115,15 @@ class LLMModule(CognitiveModule):
         elif et == "capability_model_updated":
             if self._self_context is not None:
                 self._self_context["capability_update"] = event.data or {}
+        elif et in {"memory_consolidated", "sleep_cycle_completed"}:
+            self._consolidation_context = dict(event.data or {})
+        elif et == "dream_narrative":
+            self._consolidation_context["latest_dream"] = dict(event.data or {})
+        elif et == "consolidation_lesson":
+            lessons = self._consolidation_context.setdefault("recent_lessons", [])
+            if isinstance(lessons, list):
+                lessons.append(dict(event.data or {}))
+                self._consolidation_context["recent_lessons"] = lessons[-6:]
 
     async def _handle_user_utterance(self, event: Event) -> None:
         text = str(event.data.get("text", "") or "").strip()
@@ -304,6 +318,10 @@ class LLMModule(CognitiveModule):
         if world:
             sections.append("V5 world model context:\n" + world)
 
+        consolidation = self._format_consolidation_context()
+        if consolidation:
+            sections.append("V6 sleep/consolidation context:\n" + consolidation)
+
         wm = self._format_working_memory(memory_data.get("wm_snapshot") or self._wm_context)
         if wm:
             sections.append("Working memory:\n" + wm)
@@ -325,6 +343,27 @@ class LLMModule(CognitiveModule):
         )
         return "\n\n---\n\n".join(sections)
 
+
+
+    def _format_consolidation_context(self) -> str:
+        if not self._consolidation_context:
+            return ""
+        lines = []
+        summary = self._consolidation_context.get("summary")
+        if summary:
+            lines.append("last consolidation: " + str(summary)[:700])
+        lessons = self._consolidation_context.get("lessons") or self._consolidation_context.get("recent_lessons") or []
+        if isinstance(lessons, list) and lessons:
+            for lesson in lessons[-4:]:
+                if isinstance(lesson, dict):
+                    lines.append(f"lesson[{lesson.get('type', 'generic')}]: {str(lesson.get('summary', ''))[:260]}")
+        dream = self._consolidation_context.get("dream") or self._consolidation_context.get("latest_dream") or {}
+        if isinstance(dream, dict) and dream.get("narrative"):
+            lines.append("latest dream replay: " + str(dream.get("narrative"))[:500])
+        loops = self._consolidation_context.get("open_loops") or []
+        if loops:
+            lines.append("consolidated open loops: " + "; ".join(str(x)[:160] for x in list(loops)[-4:]))
+        return "\n".join(f"- {line}" for line in lines if line)
 
     def _format_self_context(self) -> str:
         if not self._self_context and not self._self_reflection:

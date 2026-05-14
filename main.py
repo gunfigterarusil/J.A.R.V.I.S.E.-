@@ -93,8 +93,17 @@ async def run_with_chat(kernel: Kernel) -> None:
 
     def _capture_responses(event, priority):
         original_emit(event, priority)
-        if getattr(event, "type", "") == "response_generated":
+        et = getattr(event, "type", "")
+        text = ""
+        if et == "response_generated":
             text = str(event.data.get("text", "") or "")
+        elif et == "sleep_cycle_completed":
+            text = "Sleep cycle completed. " + str(event.data.get("summary", "") or "")
+        elif et == "dream_narrative":
+            # Keep dream narratives available in chat only when manually requested.
+            if event.data.get("requested_by") == "cli_chat":
+                text = str(event.data.get("narrative", "") or "")
+        if text:
             try:
                 loop.call_soon_threadsafe(response_queue.put_nowait, text)
             except RuntimeError:
@@ -104,7 +113,7 @@ async def run_with_chat(kernel: Kernel) -> None:
     kernel.event_bus.emit = _capture_responses  # type: ignore[method-assign]
     kernel_task = asyncio.create_task(kernel.start())
 
-    print("Jarvis chat mode. Type /see to read the screen, /self, /world, or /exit to stop.\n")
+    print("Jarvis chat mode. Type /see, /self, /world, /sleep, /dream, /consolidate, or /exit to stop.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -113,6 +122,29 @@ async def run_with_chat(kernel: Kernel) -> None:
                 continue
             if user_text.lower() in {"/exit", "/quit", "exit", "quit"}:
                 break
+
+
+            if user_text.lower() in {"/sleep", "/dream", "/consolidate", "/memory-consolidate"}:
+                command = user_text.lower().lstrip("/")
+                event_type = "sleep_cycle_requested" if command in {"sleep", "dream"} else "memory_consolidation_requested"
+                kernel.event_bus.emit(
+                    __import__("core.event_bus", fromlist=["CognitiveEvent"]).CognitiveEvent(
+                        type=event_type,
+                        data={
+                            "reason": f"cli_command:{command}",
+                            "force": True,
+                            "respond": True,
+                        },
+                        source_module="cli_chat",
+                    ),
+                    __import__("core.event_bus", fromlist=["Priority"]).Priority.COGNITIVE,
+                )
+                try:
+                    response = await asyncio.wait_for(response_queue.get(), timeout=20.0)
+                    print(f"Jarvis: {response}\n")
+                except asyncio.TimeoutError:
+                    print("Jarvis: Sleep/consolidation module did not respond. Check whether dream module is loaded.\n")
+                continue
 
             if user_text.lower() in {"/self", "/whoami", "/identity"}:
                 mod = kernel.modules.get("self_model")

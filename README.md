@@ -490,9 +490,40 @@ Everything is stored in `~/.jarvis_brain/`:
 | V3 | ✅ MVP Done | Screen reading (OCR + ScreenParser) |
 | V4 | ✅ MVP Done | Rich emotions + deep internal monologue |
 | V5 | ✅ MVP Done | World model + mature self-model |
-| V6 | Next | Sleep/dream replay + memory consolidation |
-| V7 | Planned | PC automation via tier4_actions (safety-gated) |
+| V6 | ✅ MVP Done | Sleep/dream replay + memory consolidation |
+| V7 | Next | PC automation via tier4_actions (safety-gated) |
 | V8 | Planned | Android / server / robot bodies |
+
+
+### V6 implementation details
+
+V6 is implemented in `modules/tier5_evolution/dream/dream_module.py`. It converts recent runtime experience into persistent consolidation reports:
+
+```text
+recent events + dialogue turns + monologue + screen/errors
+  → sleep_cycle_requested / memory_consolidation_requested
+  → dream replay narrative
+  → extracted themes, lessons and open loops
+  → memory_consolidated + consolidation_lesson + learning_applied
+  → self/world/LLM context updates
+```
+
+Manual commands in `--chat`:
+
+```text
+/sleep
+/dream
+/consolidate
+/memory-consolidate
+```
+
+Voice triggers also work in `--voice`, for example: “consolidate memory”, “run sleep cycle”, “запусти сон”, “консолідуй памʼять”.
+
+Persisted state:
+
+```text
+~/.jarvis_brain/dream_v6_state.json
+```
 
 ### V1 implementation details
 

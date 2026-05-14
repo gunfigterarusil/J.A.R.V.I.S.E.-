@@ -113,6 +113,10 @@ class SelfModelModule(CognitiveModule):
                 "tts_spoken",
                 "tts_error",
                 "self_model_request",
+                "memory_consolidated",
+                "sleep_cycle_completed",
+                "consolidation_lesson",
+                "dream_narrative",
             ],
         )
 
@@ -164,6 +168,22 @@ class SelfModelModule(CognitiveModule):
             self._record_failure("tts_error", event.data)
         elif et == "self_model_request":
             self._emit_snapshot(reason=str(event.data.get("reason") or "requested"), request_id=event.data.get("request_id"))
+        elif et in {"memory_consolidated", "sleep_cycle_completed"}:
+            self.cognitive_maturity = min(1.0, self.cognitive_maturity + 0.008)
+            summary = str(event.data.get("summary") or "memory consolidated")[:320]
+            self.self_awareness_notes.append("V6 consolidation: " + summary)
+            self.self_awareness_notes = self.self_awareness_notes[-12:]
+            self._emit_snapshot(reason="v6_memory_consolidated")
+        elif et == "consolidation_lesson":
+            self.cognitive_maturity = min(1.0, self.cognitive_maturity + 0.003)
+            summary = str(event.data.get("summary") or "lesson")[:260]
+            self.self_awareness_notes.append("Lesson: " + summary)
+            self.self_awareness_notes = self.self_awareness_notes[-12:]
+        elif et == "dream_narrative":
+            narrative = str(event.data.get("narrative") or "")[:260]
+            if narrative:
+                self.self_awareness_notes.append("Dream replay: " + narrative)
+                self.self_awareness_notes = self.self_awareness_notes[-12:]
 
     def update(self, dt: float) -> None:
         now = time.time()

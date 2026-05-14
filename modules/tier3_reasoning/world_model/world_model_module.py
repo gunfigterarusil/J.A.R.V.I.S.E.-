@@ -102,6 +102,11 @@ class WorldModelModule(CognitiveModule):
                 "tts_error",
                 "capability_model_updated",
                 "world_model_request",
+                "memory_consolidated",
+                "sleep_cycle_completed",
+                "consolidation_lesson",
+                "dream_narrative",
+                "sleep_state_changed",
             ],
         )
 
@@ -146,6 +151,24 @@ class WorldModelModule(CognitiveModule):
             self.capability_context = dict(event.data or {})
         elif et == "world_model_request":
             self._emit_context(reason=str(event.data.get("reason") or "requested"), request_id=event.data.get("request_id"))
+        elif et in {"memory_consolidated", "sleep_cycle_completed"}:
+            summary = str(event.data.get("summary") or "")[:800]
+            self._record_timeline("memory_consolidated", {"summary": summary, "lessons": len(event.data.get("lessons") or [])})
+            for loop in event.data.get("open_loops") or []:
+                self.open_loops.append({"text": str(loop)[:400], "source": "v6_consolidation", "timestamp": time.time()})
+                self.open_loops = self.open_loops[-self._cfg_int("max_open_loops", _DEFAULT_MAX_OPEN_LOOPS):]
+            self._observe_pattern("v6:consolidation", outcome="memory_quality")
+            self._emit_context(reason="v6_memory_consolidated")
+        elif et == "consolidation_lesson":
+            summary = str(event.data.get("summary") or "")[:500]
+            if summary:
+                self._record_timeline("consolidation_lesson", {"summary": summary, "type": event.data.get("type")})
+                self._observe_pattern("lesson:" + str(event.data.get("type") or "generic"), outcome="consolidated")
+        elif et == "dream_narrative":
+            self._record_timeline("dream_narrative", {"narrative": str(event.data.get("narrative") or "")[:500]})
+        elif et == "sleep_state_changed":
+            self.environment.setdefault("sleep", {})["state"] = event.data.get("state")
+            self.environment.setdefault("sleep", {})["last_reason"] = event.data.get("reason")
 
     def update(self, dt: float) -> None:
         now = time.time()
