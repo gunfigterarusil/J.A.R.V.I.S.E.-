@@ -257,6 +257,21 @@ class CodeRepairConfig:
     auto_apply: bool = field(default_factory=lambda: os.environ.get("CODE_REPAIR_AUTO_APPLY", "false").lower() == "true")
     require_llm_for_patch: bool = field(default_factory=lambda: os.environ.get("CODE_REPAIR_REQUIRE_LLM", "true").lower() == "true")
 
+
+
+@dataclass
+class TaskChainConfig:
+    """V9.4 autonomous/guided task chain settings.
+
+    A task chain decomposes a broad goal into safe steps. External effects still
+    go through V7 safety gates. Guided mode is default; auto mode can continue
+    low-risk steps until it hits a safety confirmation or completion.
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("TASK_CHAINS_ENABLED", "true").lower() == "true")
+    auto_step_default: bool = field(default_factory=lambda: os.environ.get("TASK_CHAINS_AUTO_STEP_DEFAULT", "false").lower() == "true")
+    max_steps: int = field(default_factory=lambda: int(os.environ.get("TASK_CHAINS_MAX_STEPS", "8")))
+    step_timeout_seconds: float = field(default_factory=lambda: float(os.environ.get("TASK_CHAINS_STEP_TIMEOUT_SECONDS", "90")))
+
 @dataclass
 class ActionConfig:
     """V7 safe PC automation settings.
@@ -391,6 +406,7 @@ class KernelConfig:
     actions: ActionConfig = field(default_factory=ActionConfig)
     natural_actions: NaturalActionConfig = field(default_factory=NaturalActionConfig)
     code_repair: CodeRepairConfig = field(default_factory=CodeRepairConfig)
+    task_chains: TaskChainConfig = field(default_factory=TaskChainConfig)
 
     # ------------------------------------------------------------------
     # V9.3 Web learning / search

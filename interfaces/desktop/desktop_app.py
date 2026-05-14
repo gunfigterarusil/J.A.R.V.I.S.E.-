@@ -141,6 +141,9 @@ class DesktopApp:
         add_button(controls, "Action status", self.action_status)
         add_button(controls, "Web search help", lambda: self._prefill("пошукай в інтернеті "))
         add_button(controls, "Web learn help", lambda: self._prefill("вивчи "))
+        add_button(controls, "Task status", self.task_status)
+        add_button(controls, "Continue task", self.task_step)
+        add_button(controls, "New task help", lambda: self._prefill("розберися з "))
         add_button(controls, "Settings Center", self.open_settings)
         ttk.Separator(controls.body).pack(fill=tk.X, pady=8, padx=4)
         ttk.Label(controls.body, text="Safety", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 6), padx=4)
@@ -164,6 +167,9 @@ class DesktopApp:
             "виправ помилки в .",
             "пошукай в інтернеті latest Python release",
             "вивчи як працює vector memory",
+            "розберися з помилками в .",
+            "продовжуй задачу",
+            "статус задачі",
         ]
         for text in examples:
             add_button(commands, text, lambda t=text: self._prefill(t))
@@ -256,6 +262,14 @@ class DesktopApp:
             self.action_status(); return
         if lower in {"/memory", "/memory-status", "/storage"}:
             self.memory_status(); return
+        if lower in {"/tasks", "/task-status"} or lower.startswith("/task-status "):
+            self.emit("task_chain_status_requested", {"task_id": text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) > 1 else "", "respond": True}, Priority.COGNITIVE); return
+        if lower.startswith("/task-step") or lower.startswith("/continue-task"):
+            self.emit("task_chain_step_requested", {"task_id": text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) > 1 else "", "respond": True}, Priority.COGNITIVE); return
+        if lower.startswith("/task "):
+            self.emit("task_chain_requested", {"goal": text.split(maxsplit=1)[1].strip(), "autonomy": "guided", "respond": True}, Priority.COGNITIVE); return
+        if lower.startswith("/task-auto "):
+            self.emit("task_chain_requested", {"goal": text.split(maxsplit=1)[1].strip(), "autonomy": "auto", "respond": True}, Priority.COGNITIVE); return
         if lower.startswith("/web-search "):
             self.emit("web_search_requested", {"query": text.split(maxsplit=1)[1], "respond": True}, Priority.COGNITIVE); return
         if lower.startswith("/web-learn "):
@@ -288,6 +302,12 @@ class DesktopApp:
 
     def memory_status(self) -> None:
         self.emit("memory_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def task_status(self) -> None:
+        self.emit("task_chain_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def task_step(self) -> None:
+        self.emit("task_chain_step_requested", {"respond": True}, Priority.COGNITIVE)
 
     def open_settings(self) -> None:
         SettingsWindow(self.root, on_saved=self._settings_saved)

@@ -155,7 +155,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /see, /self, /world, /memory, /recall, /web-search, /web-learn, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
+    print("Jarvis chat mode. Type /see, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -193,6 +193,60 @@ async def run_with_chat(kernel: Kernel) -> None:
                     Priority.COGNITIVE,
                 )
                 await wait_action_response(timeout=45.0)
+                continue
+
+            if lower.startswith("/task "):
+                goal = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="task_chain_requested", data={"goal": goal, "autonomy": "guided", "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower.startswith("/task-auto "):
+                goal = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="task_chain_requested", data={"goal": goal, "autonomy": "auto", "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower in {"/tasks", "/task-status"} or lower.startswith("/task-status "):
+                task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="task_chain_status_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+            if lower.startswith("/task-step") or lower.startswith("/continue-task"):
+                task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="task_chain_step_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower.startswith("/task-resume"):
+                task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="task_chain_resume_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower.startswith("/task-cancel"):
+                task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="task_chain_cancel_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
                 continue
 
             if lower.startswith("/web-learn ") or lower.startswith("/learn-web "):

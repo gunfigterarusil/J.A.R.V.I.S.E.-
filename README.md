@@ -1233,3 +1233,33 @@ Settings Center with search, scrollable groups and Browse buttons for paths/file
 ```
 
 This fixes the old problem where settings/buttons could go off-screen on smaller displays.
+
+
+## V9.4 — Autonomous Task Chains MVP
+
+Status: ✅ MVP Done
+
+JAV can now turn broad goals into guided or controlled-auto task chains.
+
+Examples:
+
+```bash
+python main.py --chat
+```
+
+```text
+/task розберися з помилками в .
+/task-step
+/tasks
+/task-auto досліди тему vector memory і запиши висновки
+```
+
+Natural language also works from chat, voice, and desktop:
+
+```text
+розберися з помилками в .
+продовжуй задачу
+статус задачі
+```
+
+The chain uses memory, self/world model, LLM planning, screen/web/repair/actions, and V7 safety gates. File writes and shell actions still require the configured safety level and approval when needed.

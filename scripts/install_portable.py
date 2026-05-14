@@ -113,6 +113,10 @@ def main() -> None:
         "WEB_LEARN_STORE_ENABLED": "true",
         "WEB_SEARCH_MAX_RESULTS": "5",
         "WEB_LEARN_MAX_SOURCES": "4",
+        "TASK_CHAINS_ENABLED": "true",
+        "TASK_CHAINS_AUTO_STEP_DEFAULT": "false",
+        "TASK_CHAINS_MAX_STEPS": "8",
+        "TASK_CHAINS_STEP_TIMEOUT_SECONDS": "90",
     })
     write_launchers(dst)
     print(f"Portable JAV installed to: {dst}")

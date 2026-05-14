@@ -63,6 +63,16 @@ class ActionIntentModule(CognitiveModule):
             self._emit_event("code_repair_requested", payload, event)
         elif kind == "repair_apply":
             self._emit_event("code_repair_apply_requested", payload, event)
+        elif kind == "task":
+            self._emit_event("task_chain_requested", payload, event)
+        elif kind == "task_step":
+            self._emit_event("task_chain_step_requested", payload, event)
+        elif kind == "task_status":
+            self._emit_event("task_chain_status_requested", payload, event)
+        elif kind == "task_cancel":
+            self._emit_event("task_chain_cancel_requested", payload, event)
+        elif kind == "task_resume":
+            self._emit_event("task_chain_resume_requested", payload, event)
         elif kind == "response" and response:
             self._respond(response)
 
@@ -223,6 +233,30 @@ class ActionIntentModule(CognitiveModule):
         if any(p in lower for p in ["покажи налаштування", "відкрий налаштування", "settings", "налаштування"]):
             return "response", "settings", {}, "Налаштування доступні у Desktop → Settings Center. Там можна керувати LLM, голосом, OCR, action executor, safety, sleep, emotion, self/world model і web UI. З голосу/чату я можу змінювати live safety-рівень, а повні env-налаштування краще міняти через Settings Center."
 
+        # V9.4 task chains: broad goals, continuation, status, cancellation.
+        m = re.search(r"(?:^|\b)(?:task|задача|ланцюг задач|цепочка задач)\s*(?:[:\-])?\s+(.+)$", raw, flags=re.IGNORECASE)
+        if m:
+            goal = m.group(1).strip().strip('"\'')
+            return "task", "task_chain_requested", {"goal": goal, "autonomy": "guided"}, ""
+        if any(p in lower for p in ["продовжуй задачу", "продовжи задачу", "continue task", "next task step", "наступний крок задачі"]):
+            task_id = ""
+            m2 = re.search(r"(tc\d+)", lower)
+            if m2:
+                task_id = m2.group(1)
+            return "task_step", "task_chain_step_requested", {"task_id": task_id}, ""
+        if any(p in lower for p in ["статус задачі", "статус task", "task status", "покажи задачі", "активні задачі"]):
+            m2 = re.search(r"(tc\d+)", lower)
+            return "task_status", "task_chain_status_requested", {"task_id": m2.group(1) if m2 else ""}, ""
+        if any(p in lower for p in ["скасуй задачу", "cancel task", "зупини задачу"]):
+            m2 = re.search(r"(tc\d+)", lower)
+            return "task_cancel", "task_chain_cancel_requested", {"task_id": m2.group(1) if m2 else ""}, ""
+        if any(p in lower for p in ["автономно продовжуй", "resume task", "продовжуй автономно"]):
+            m2 = re.search(r"(tc\d+)", lower)
+            return "task_resume", "task_chain_resume_requested", {"task_id": m2.group(1) if m2 else ""}, ""
+        if any(p in lower for p in ["розберися з", "розберись з", "займись", "виріши задачу", "зроби задачу", "figure out", "handle this task"]):
+            goal = raw
+            return "task", "task_chain_requested", {"goal": goal, "autonomy": "auto" if ("автоном" in lower or "auto" in lower) else "guided"}, ""
+
         # Apply a ready V9 repair proposal. Still goes through V7 write_file safety.
         m = re.search(r"(?:застосуй|примени|apply)\s+(?:ремонт|repair|patch|патч)?\s*(rp\d+)?", lower)
         if m and ("застосуй" in lower or "apply" in lower or "примени" in lower):
@@ -291,7 +325,7 @@ class ActionIntentModule(CognitiveModule):
             "supported_natural_intents": [
                 "screen_read", "sleep_consolidate", "self_status", "world_status", "settings_help",
                 "action_status", "set_safety", "approve_pending", "deny_pending", "list_files", "read_file",
-                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal",
+                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4",
             ],
         })
         return base

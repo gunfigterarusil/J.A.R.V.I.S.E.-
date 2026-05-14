@@ -87,6 +87,10 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
         SettingSpec("CODE_REPAIR_MAX_FILE_CHARS", "Repair max file chars", "18000"),
         SettingSpec("CODE_REPAIR_AUTO_APPLY", "Auto-apply repair proposals", "false", kind="bool"),
         SettingSpec("CODE_REPAIR_REQUIRE_LLM", "Require LLM for patch", "true", kind="bool"),
+        SettingSpec("TASK_CHAINS_ENABLED", "Enable V9.4 task chains", "true", kind="bool"),
+        SettingSpec("TASK_CHAINS_AUTO_STEP_DEFAULT", "Task chains auto-step by default", "false", kind="bool"),
+        SettingSpec("TASK_CHAINS_MAX_STEPS", "Task chain max steps", "8"),
+        SettingSpec("TASK_CHAINS_STEP_TIMEOUT_SECONDS", "Task step timeout seconds", "90"),
     ],
     "Memory / Sleep": [
         SettingSpec("MEMORY_STM_LIFETIME_SECONDS", "Short-term memory lifetime seconds", "30"),
