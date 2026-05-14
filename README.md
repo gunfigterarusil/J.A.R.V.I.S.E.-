@@ -137,7 +137,7 @@ Stored in `~/.jarvis_brain/` as atomic JSON files.
 ### 1. Install dependencies
 
 ```bash
-pip install fastapi uvicorn websockets
+pip install -r requirements.txt
 ```
 
 For local LLM (recommended):
@@ -153,15 +153,37 @@ pip install openai             # OpenAI / LM Studio
 pip install google-generativeai  # Gemini
 ```
 
-### 2. Run headless (terminal only)
+### 2. Run headless (kernel only)
 
 ```bash
 python main.py
 ```
 
-The kernel starts, auto-discovers all 17 modules, and begins the cognitive tick loop. Press `Ctrl+C` to stop (state is saved automatically).
+The kernel starts, auto-discovers all modules, and begins the cognitive tick loop. Press `Ctrl+C` to stop (state is saved automatically).
 
-### 3. Run with web dashboard
+### 3. Run terminal dialogue mode
+
+```bash
+python main.py --chat
+```
+
+This is the V1 real dialogue loop:
+
+```text
+user text → memory retrieval → LLMRouter → response_generated → dialogue history persistence
+```
+
+Use this mode to test Jarvis before enabling voice or PC automation.
+
+### 4. Run with voice
+
+```bash
+python main.py --voice
+```
+
+Voice mode uses microphone STT through `faster-whisper`, sends recognized speech into the same V1 dialogue/memory loop as `--chat`, then speaks `response_generated` with Piper TTS. If Piper is not configured, it falls back to `pyttsx3` when available. The voice loop waits for the answer/TTS completion before listening again to avoid transcribing its own speaker output.
+
+### 5. Run with web dashboard
 
 ```bash
 python main.py --web
@@ -450,15 +472,64 @@ Everything is stored in `~/.jarvis_brain/`:
 
 | Version | Status | Focus |
 |---------|--------|-------|
-| V0 | ✅ Done | Kernel + 17 modules + safety + imagination |
-| V1 | Next | Real LLM conversation loop + memory retrieval |
-| V2 | Planned | Voice (TTS + STT) |
-| V3 | Planned | Screen reading (OCR + ScreenParser) |
+| V0 | ✅ Done | Kernel + modules + safety + imagination |
+| V1 | ✅ Done | Real LLM dialogue loop + relevant memory retrieval |
+| V2 | ✅ Stable MVP | Voice STT + V1 dialogue loop + Piper/pyttsx3 TTS fallback |
+| V3 | Next | Screen reading (OCR + ScreenParser) |
 | V4 | Planned | Rich emotions + monologue depth |
 | V5 | Planned | World model + self-model maturity |
 | V6 | Planned | Sleep/dream replay + memory consolidation |
 | V7 | Planned | PC automation via tier4_actions (safety-gated) |
 | V8 | Planned | Android / server / robot bodies |
+
+### V1 implementation details
+
+V1 is now implemented in `modules/tier3_reasoning/llm/llm_module.py` and `modules/tier1_essential/memory/memory_module.py`. Both `--chat` and `--voice` use the same dialogue path:
+
+```text
+user_utterance
+  → memory_request(query_type=dialogue_context)
+  → memory_retrieved(wm + stm + episodic + semantic + social context)
+  → LLMRouter.generate(...)
+  → response_generated
+  → dialogue_turn_completed
+  → persisted dialogue_history + persisted memory
+```
+
+New test mode:
+
+```bash
+python main.py --chat
+```
+
+The system still runs without a configured LLM through `NullProvider`, but real dialogue requires Ollama, Gemini, OpenAI-compatible API, Anthropic, or llama.cpp configured through `.env`/`config.py`.
+
+
+### V2 stable voice details
+
+V2 is wired through `interfaces/voice/voice_loop.py` and `modules/tier4_actions/tts/tts_module.py`:
+
+```text
+microphone
+  → faster-whisper STT
+  → user_utterance(input_mode=voice)
+  → V1 memory + LLM dialogue path
+  → response_generated
+  → Piper TTS or pyttsx3 fallback
+  → tts_spoken / tts_error
+  → listen again
+```
+
+Important voice settings in `.env`:
+
+```env
+VOICE_RESPONSE_TIMEOUT=90
+VOICE_TTS_WAIT_TIMEOUT=45
+VOICE_LISTEN_AFTER_RESPONSE_DELAY=0.35
+VOICE_TTS_BACKEND=auto
+```
+
+This prevents the microphone from immediately listening while Jarvis is still speaking.
 
 ---
 

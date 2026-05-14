@@ -256,6 +256,39 @@ def _jaccard(a: str, b: str) -> float:
     return intersection / union_set if union_set else 0.0
 
 
+def _tokenize(text: str) -> set[str]:
+    return {
+        part.strip(".,:;!?()[]{}\"'`<>/\\|+-=*_#@")
+        for part in str(text or "").lower().split()
+        if len(part.strip(".,:;!?()[]{}\"'`<>/\\|+-=*_#@")) >= 3
+    }
+
+
+def _memory_to_text(memory: Any) -> str:
+    if isinstance(memory, dict):
+        data = memory.get("data", memory)
+        if isinstance(data, dict):
+            parts = [
+                str(data.get("text", "")),
+                str(data.get("raw_text", "")),
+                str(data.get("summary", "")),
+                str(data.get("source", "")),
+            ]
+            return " ".join(p for p in parts if p)
+        return str(data)
+    return str(memory)
+
+
+def _token_score(tokens: set[str], text: str) -> float:
+    if not tokens:
+        return 0.0
+    haystack = set(_tokenize(text))
+    if not haystack:
+        return 0.0
+    overlap = len(tokens & haystack)
+    return overlap / max(1, len(tokens))
+
+
 class MemoryModule(CognitiveModule):
     """
     Tier 1: Memory Module
@@ -284,6 +317,7 @@ class MemoryModule(CognitiveModule):
                 "sensory_input",
                 "user_utterance",
                 "thought_generated",
+                "response_generated",
                 "memory_request",
                 "kernel_started",
             ],
@@ -296,6 +330,8 @@ class MemoryModule(CognitiveModule):
             await self._handle_utterance(event.data)
         elif event.type == "thought_generated":
             await self._handle_thought(event.data)
+        elif event.type == "response_generated":
+            await self._handle_response(event.data)
         elif event.type == "memory_request":
             await self._handle_request(event.data)
 
@@ -314,6 +350,7 @@ class MemoryModule(CognitiveModule):
         memory = {"type": "user_utterance", "data": data, "timestamp": time.time()}
         self._manager.stm_push(memory)
         self._manager.wm_insert(memory, importance=0.6)
+        self._manager.episodic_store({**memory, "importance": float(data.get("importance", 0.65) or 0.65)})
         logger.info(f"[Memory] Stored user_utterance: {data.get('text', '')[:50]}")
         # If user_id is present, update social profile
         user_id = data.get("user_id")
@@ -342,6 +379,28 @@ class MemoryModule(CognitiveModule):
                 Priority.COGNITIVE,
             )
 
+
+    async def _handle_response(self, data: Dict[str, Any]) -> None:
+        """Store assistant responses as dialogue memory."""
+        text = str(data.get("text", "") or "").strip()
+        if not text:
+            return
+        memory = {
+            "type": "assistant_response",
+            "data": data,
+            "timestamp": time.time(),
+            "importance": float(data.get("importance", 0.55) or 0.55),
+        }
+        self._manager.stm_push(memory)
+        self._manager.wm_insert(memory, importance=0.55)
+        self._manager.episodic_store(memory)
+        logger.info(f"[Memory] Stored assistant_response: {text[:50]}")
+        if self._kernel is not None:
+            self._kernel.event_bus.emit(
+                Event(type="memory_stored", data={"type": "assistant_response", "status": "ok"}),
+                Priority.COGNITIVE,
+            )
+
     async def _handle_request(self, data: Dict[str, Any]) -> None:
         query_type = data.get("query_type")
         result: Dict[str, Any] = {}
@@ -361,6 +420,11 @@ class MemoryModule(CognitiveModule):
         elif query_type == "social":
             uid = data.get("user_id")
             result = {"social_profile": self._manager.social_get_profile(uid) if uid else None}
+        elif query_type in {"dialogue_context", "relevant"}:
+            query_text = str(data.get("query_text") or data.get("subject") or "")
+            result = self._build_dialogue_context(query_text=query_text, top_k=int(data.get("top_k", 6)))
+            if data.get("request_id"):
+                result["request_id"] = data.get("request_id")
         else:
             result = {"error": f"Unknown query_type: {query_type}"}
 
@@ -369,6 +433,48 @@ class MemoryModule(CognitiveModule):
                 Event(type="memory_retrieved", data=result),
                 Priority.COGNITIVE,
             )
+
+
+    def _build_dialogue_context(self, query_text: str, top_k: int = 6) -> Dict[str, Any]:
+        """Return compact, relevant memory for the dialogue module/LLM.
+
+        This is intentionally lightweight: no vector DB yet. It combines
+        working memory, recent short-term memory, episodic recall, semantic
+        triples, and social profile into one stable payload.
+        """
+        tokens = _tokenize(query_text)
+        wm = self._manager.wm_snapshot()[-7:]
+        stm_recent = list(self._manager._stm)[-10:]
+
+        scored: List[tuple[float, Dict[str, Any]]] = []
+        now = time.time()
+        for mem in self._manager._episodic:
+            exp = mem.get("experience", mem)
+            text = _memory_to_text(exp)
+            score = _token_score(tokens, text)
+            age = max(0.0, now - float(mem.get("timestamp", now)))
+            recency = 1.0 / (1.0 + age / 3600.0)
+            importance = float(mem.get("importance", exp.get("importance", 0.5) if isinstance(exp, dict) else 0.5) or 0.5)
+            final = score * 1.5 + recency * 0.35 + importance * 0.25
+            if score > 0 or not tokens:
+                scored.append((final, exp))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        episodic = [m for _, m in scored[:top_k]]
+
+        semantic_matches = []
+        if query_text:
+            semantic_matches = self._manager.semantic_query_similar(query_text, threshold=0.15)[:top_k]
+
+        return {
+            "query_text": query_text,
+            "wm_snapshot": wm,
+            "stm_recent": stm_recent,
+            "episodic_recalls": episodic,
+            "semantic_matches": semantic_matches,
+            "social_profile": self._manager.social_get_profile("default_user"),
+            "counts": self._manager.get_counts(),
+        }
 
     def update(self, dt: float) -> None:
         # Decay old STM entries

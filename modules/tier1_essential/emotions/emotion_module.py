@@ -177,10 +177,18 @@ class EmotionModule(CognitiveModule):
         arousal = 0.0
         if "episodic_recalls" in data:
             for mem in data["episodic_recalls"]:
-                valence += mem.get("importance", 0.0) * 0.1
-                arousal += mem.get("emotion_tags", [])
-                if isinstance(arousal, list):
-                    arousal = len(arousal) * 0.1
+                if not isinstance(mem, dict):
+                    continue
+                exp = mem.get("experience", mem)
+                if isinstance(exp, dict):
+                    valence += float(exp.get("importance", mem.get("importance", 0.0)) or 0.0) * 0.1
+                    tags = exp.get("emotion_tags", mem.get("emotion_tags", [])) or []
+                else:
+                    tags = []
+                if isinstance(tags, list):
+                    arousal += len(tags) * 0.1
+                elif tags:
+                    arousal += 0.1
         return _clamp(valence), _clamp(arousal), 0.0
 
     def _update_vad(self, d_valence: float, d_arousal: float, d_dominance: float) -> None:

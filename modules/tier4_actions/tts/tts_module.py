@@ -94,9 +94,10 @@ class TTSModule(CognitiveModule):
         text = str(event.data.get("text", "")).strip()
         if not text:
             return
-        await self._speak(text)
+        turn_id = str(event.data.get("turn_id", "") or "")
+        await self._speak(text, turn_id=turn_id)
 
-    async def _speak(self, text: str) -> None:
+    async def _speak(self, text: str, turn_id: str = "") -> None:
         async with self._speak_lock:
             errors: list[str] = []
             for name, backend in self._backends:
@@ -108,7 +109,7 @@ class TTSModule(CognitiveModule):
                         self.kernel.event_bus.emit(
                             Event(
                                 type="tts_spoken",
-                                data={"text": text[:300], "backend": name},
+                                data={"text": text[:300], "backend": name, "turn_id": turn_id},
                                 source_module=self.module_id,
                             ),
                             Priority.BACKGROUND,
@@ -132,7 +133,7 @@ class TTSModule(CognitiveModule):
                 self.kernel.event_bus.emit(
                     Event(
                         type="tts_error",
-                        data={"error": self._last_error},
+                        data={"error": self._last_error, "turn_id": turn_id},
                         source_module=self.module_id,
                     ),
                     Priority.BACKGROUND,

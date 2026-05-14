@@ -5,7 +5,8 @@ Starts the cognitive runtime kernel with all tier modules auto-discovered.
 Usage:
     python main.py                  # kernel only (headless)
     python main.py --web            # kernel + web dashboard on port 8000
-    python main.py --voice          # kernel + microphone STT + Piper TTS
+    python main.py --voice          # kernel + microphone STT + Piper/pyttsx3 TTS
+    python main.py --chat           # terminal dialogue loop
     python main.py --web --port 9000
 """
 from __future__ import annotations
@@ -83,6 +84,57 @@ async def run_with_voice(kernel: Kernel) -> None:
         await asyncio.gather(kernel_task, voice_task, return_exceptions=True)
 
 
+async def run_with_chat(kernel: Kernel) -> None:
+    """Run kernel with an interactive terminal dialogue loop."""
+    logger.info("[Main] Starting cognitive runtime with terminal chat")
+
+    response_queue: asyncio.Queue[str] = asyncio.Queue()
+    original_emit = kernel.event_bus.emit
+
+    def _capture_responses(event, priority):
+        original_emit(event, priority)
+        if getattr(event, "type", "") == "response_generated":
+            text = str(event.data.get("text", "") or "")
+            try:
+                loop.call_soon_threadsafe(response_queue.put_nowait, text)
+            except RuntimeError:
+                pass
+
+    loop = asyncio.get_running_loop()
+    kernel.event_bus.emit = _capture_responses  # type: ignore[method-assign]
+    kernel_task = asyncio.create_task(kernel.start())
+
+    print("Jarvis chat mode. Type /exit to stop.\n")
+    try:
+        while kernel.running or not kernel_task.done():
+            user_text = await asyncio.to_thread(input, "You: ")
+            user_text = user_text.strip()
+            if not user_text:
+                continue
+            if user_text.lower() in {"/exit", "/quit", "exit", "quit"}:
+                break
+            kernel.event_bus.emit(
+                __import__("core.event_bus", fromlist=["CognitiveEvent"]).CognitiveEvent(
+                    type="user_utterance",
+                    data={"text": user_text, "input_mode": "cli"},
+                    source_module="cli_chat",
+                ),
+                __import__("core.event_bus", fromlist=["Priority"]).Priority.REALTIME,
+            )
+            try:
+                response = await asyncio.wait_for(response_queue.get(), timeout=90.0)
+                print(f"Jarvis: {response}\n")
+            except asyncio.TimeoutError:
+                print("Jarvis: No response yet. Check the LLM provider or logs.\n")
+    except (KeyboardInterrupt, EOFError):
+        pass
+    finally:
+        kernel.shutdown()
+        if not kernel_task.done():
+            kernel_task.cancel()
+        await asyncio.gather(kernel_task, return_exceptions=True)
+
+
 def run_with_web(kernel: Kernel, host: str, port: int) -> None:
     """Start kernel in background thread, serve web UI in main thread."""
     try:
@@ -111,13 +163,15 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Cognitive Brain Runtime")
     parser.add_argument("--web", action="store_true", help="Start web dashboard")
-    parser.add_argument("--voice", action="store_true", help="Start voice mode: microphone STT + Piper TTS")
+    parser.add_argument("--voice", action="store_true", help="Start voice mode: microphone STT + Piper/pyttsx3 TTS")
+    parser.add_argument("--chat", action="store_true", help="Start terminal dialogue mode")
     parser.add_argument("--host", default=cfg.web_host, help="Web UI host")
     parser.add_argument("--port", type=int, default=cfg.web_port, help="Web UI port")
     args = parser.parse_args()
 
-    if args.voice and args.web:
-        logger.error("--voice and --web are separate modes for now. Start one at a time.")
+    selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat) if enabled)
+    if selected_modes > 1:
+        logger.error("--web, --voice and --chat are separate modes for now. Start one at a time.")
         sys.exit(2)
 
     if args.web:
@@ -142,6 +196,9 @@ def main() -> None:
         cfg.voice.enabled = True
         kernel = build_kernel(cfg)
         asyncio.run(run_with_voice(kernel))
+    elif args.chat:
+        kernel = build_kernel(cfg)
+        asyncio.run(run_with_chat(kernel))
     else:
         kernel = build_kernel(cfg)
         asyncio.run(run_headless(kernel))

@@ -110,6 +110,9 @@ class VoiceConfig:
     energy_threshold: float = field(default_factory=lambda: float(os.environ.get("VOICE_ENERGY_THRESHOLD", "0.005")))
     wake_word: str = field(default_factory=lambda: os.environ.get("VOICE_WAKE_WORD", ""))
     print_transcript: bool = field(default_factory=lambda: os.environ.get("VOICE_PRINT_TRANSCRIPT", "true").lower() == "true")
+    response_timeout: float = field(default_factory=lambda: float(os.environ.get("VOICE_RESPONSE_TIMEOUT", "90")))
+    tts_wait_timeout: float = field(default_factory=lambda: float(os.environ.get("VOICE_TTS_WAIT_TIMEOUT", "45")))
+    listen_after_response_delay: float = field(default_factory=lambda: float(os.environ.get("VOICE_LISTEN_AFTER_RESPONSE_DELAY", "0.35")))
 
     # Text-to-speech
     tts_enabled: bool = field(default_factory=lambda: os.environ.get("VOICE_TTS_ENABLED", "true").lower() == "true")

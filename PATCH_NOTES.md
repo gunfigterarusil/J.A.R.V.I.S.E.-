@@ -70,3 +70,22 @@ Added:
 - `VOICE_MVP.md` setup guide.
 
 Voice mode is opt-in. Normal headless and web modes are unchanged.
+
+## V1 Dialogue MVP patch
+
+Implemented the README V1 target: real LLM dialogue loop + memory retrieval.
+
+Changed:
+- Reworked `modules/tier3_reasoning/llm/llm_module.py` into a dialogue coordinator.
+- Added `memory_request(query_type="dialogue_context")` flow.
+- Added relevant memory assembly from working memory, STM, episodic, semantic and social memory.
+- Store assistant responses in memory, not only user utterances.
+- Persist recent dialogue history in `dialogue_history.json` through the existing persistence layer.
+- Added `python main.py --chat` terminal dialogue mode for testing without voice.
+- Updated README roadmap and quick start.
+- Added `V1_DIALOGUE_MVP.md`.
+
+Validation:
+- `python -m compileall -q .`
+- `python main.py --help`
+- `printf 'привіт\n/exit\n' | timeout 12s python main.py --chat`

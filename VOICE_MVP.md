@@ -9,7 +9,7 @@ python main.py --voice
 Flow:
 
 ```text
-microphone -> faster-whisper STT -> user_utterance event -> LLM module -> response_generated -> TTS
+microphone -> faster-whisper STT -> user_utterance event -> V1 memory retrieval -> LLM dialogue -> response_generated -> TTS
 ```
 
 TTS backend order by default:
@@ -98,6 +98,9 @@ VOICE_STT_LANGUAGE=
 VOICE_RECORD_SECONDS=5
 VOICE_ENERGY_THRESHOLD=0.005
 VOICE_WAKE_WORD=
+VOICE_RESPONSE_TIMEOUT=90
+VOICE_TTS_WAIT_TIMEOUT=45
+VOICE_LISTEN_AFTER_RESPONSE_DELAY=0.35
 VOICE_TTS_ENABLED=true
 VOICE_TTS_BACKEND=auto
 
@@ -107,6 +110,28 @@ PIPER_MODEL_PATH=/absolute/path/to/voice.onnx
 PYTTSX3_VOICE_ID=
 PYTTSX3_RATE=175
 PYTTSX3_VOLUME=1.0
+```
+
+
+## V1/V2 integration behavior
+
+`python main.py --voice` now uses the same V1 dialogue path as `python main.py --chat`. The voice loop:
+
+1. records one microphone chunk;
+2. transcribes it with faster-whisper;
+3. emits `user_utterance` with `input_mode=voice`;
+4. waits for `response_generated`;
+5. waits for `tts_spoken` or `tts_error`;
+6. only then listens again.
+
+This reduces the classic bug where the microphone hears Jarvis speaking and starts replying to itself.
+
+Timing settings:
+
+```env
+VOICE_RESPONSE_TIMEOUT=90
+VOICE_TTS_WAIT_TIMEOUT=45
+VOICE_LISTEN_AFTER_RESPONSE_DELAY=0.35
 ```
 
 ## Notes
