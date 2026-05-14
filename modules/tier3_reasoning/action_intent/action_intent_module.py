@@ -221,6 +221,12 @@ class ActionIntentModule(CognitiveModule):
             query = re.sub(r"^(?:про|about)\s+", "", query, flags=re.IGNORECASE).strip()
             return "event", "memory_search_requested", {"query_text": query, "top_k": 8}, ""
 
+        # Runtime / service status.
+        if any(p in lower for p in ["runtime status", "service status", "статус сервісу", "стан сервісу", "статус рантайму", "стан програми", "health status", "покажи runtime"]):
+            return "event", "runtime_status_requested", {}, ""
+        if any(p in lower for p in ["runtime self-test", "health check", "self test", "самотест", "перевір себе", "перевір стан програми"]):
+            return "event", "runtime_self_test_requested", {}, ""
+
         # Status/self/world/settings.
         if any(p in lower for p in ["статус пам", "стан пам", "де пам", "storage status", "memory status", "покажи пам", "покажи стан пам", "де зберігається пам"]):
             return "event", "memory_status_requested", {}, ""

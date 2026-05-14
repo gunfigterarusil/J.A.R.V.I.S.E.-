@@ -14,9 +14,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
+import logging.handlers
+import os
+import signal
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -39,6 +44,38 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 
+def configure_runtime_logging(cfg: KernelConfig, service: bool = False) -> None:
+    """Configure console + rotating file logging for long-running modes."""
+    level_name = getattr(getattr(cfg, "logging", None), "level", "INFO")
+    level = getattr(logging, str(level_name).upper(), logging.INFO)
+    fmt = getattr(getattr(cfg, "logging", None), "format", "%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    datefmt = getattr(getattr(cfg, "logging", None), "date_format", "%H:%M:%S")
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+    stream = logging.StreamHandler()
+    stream.setLevel(level)
+    stream.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+    root_logger.addHandler(stream)
+    runtime = getattr(cfg, "runtime", None)
+    if runtime is not None and bool(getattr(runtime, "log_to_file", True)):
+        data_dir = Path(getattr(cfg, "persistence_dir", "~/.jarvis_brain")).expanduser()
+        log_dir = Path(runtime.resolve_log_dir(str(data_dir))).expanduser()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / ("jav_service.log" if service else "jav.log")
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=int(getattr(runtime, "log_max_bytes", 2_097_152)),
+            backupCount=int(getattr(runtime, "log_backup_count", 5)),
+            encoding="utf-8",
+        )
+        file_handler.setLevel(level)
+        file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+        root_logger.addHandler(file_handler)
+        logger.info("[Main] File logging enabled: %s", log_file)
+
+
 def build_kernel(cfg: KernelConfig) -> Kernel:
     """Create kernel — lifecycle.startup() handles module discovery."""
     kernel = Kernel(config=cfg)
@@ -47,15 +84,50 @@ def build_kernel(cfg: KernelConfig) -> Kernel:
     return kernel
 
 
-async def run_headless(kernel: Kernel) -> None:
-    """Run kernel without web UI until Ctrl+C."""
-    logger.info("[Main] Starting cognitive runtime (headless mode)")
+async def run_headless(kernel: Kernel, mode_name: str = "headless") -> None:
+    """Run kernel without UI until Ctrl+C/service signal."""
+    logger.info("[Main] Starting cognitive runtime (%s mode)", mode_name)
+    stop_event = asyncio.Event()
+
+    def _request_stop(*_args) -> None:
+        try:
+            stop_event.set()
+            kernel.shutdown()
+        except Exception:
+            pass
+
     try:
-        await kernel.start()
-    except KeyboardInterrupt:
+        loop = asyncio.get_running_loop()
+        for sig in (getattr(signal, "SIGINT", None), getattr(signal, "SIGTERM", None)):
+            if sig is not None:
+                try:
+                    loop.add_signal_handler(sig, _request_stop)
+                except (NotImplementedError, RuntimeError, ValueError):
+                    signal.signal(sig, lambda *_: _request_stop())
+    except Exception:
         pass
+
+    task = asyncio.create_task(kernel.start())
+    try:
+        if mode_name == "service":
+            stop_task = asyncio.create_task(stop_event.wait())
+            done, pending = await asyncio.wait({task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                if t is task:
+                    exc = t.exception()
+                    if exc:
+                        raise exc
+            for t in pending:
+                t.cancel()
+        else:
+            await task
+    except KeyboardInterrupt:
+        _request_stop()
     finally:
         kernel.shutdown()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 async def run_with_voice(kernel: Kernel) -> None:
@@ -180,6 +252,22 @@ async def run_with_chat(kernel: Kernel) -> None:
                 query = user_text.split(maxsplit=1)[1].strip()
                 kernel.event_bus.emit(
                     CognitiveEvent(type="memory_search_requested", data={"query_text": query, "top_k": 8, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response()
+                continue
+
+            if lower in {"/runtime", "/runtime-status", "/health", "/service-status"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="runtime_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response()
+                continue
+
+            if lower in {"/self-test", "/runtime-self-test", "/health-check"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="runtime_self_test_requested", data={"respond": True}, source_module="cli_chat"),
                     Priority.COGNITIVE,
                 )
                 await wait_action_response()
@@ -520,6 +608,12 @@ def init_portable_layout(target: str | None = None) -> Path:
         "MEMORY_EPISODIC_RETENTION_DAYS": "3650",
         "MEMORY_EPISODIC_MAX_ITEMS": "100000",
         "MEMORY_SEARCH_TOP_K": "8",
+        "JAV_SERVICE_MODE": "false",
+        "JAV_WATCHDOG_ENABLED": "true",
+        "RUNTIME_LOG_TO_FILE": "true",
+        "RUNTIME_LOG_DIR": "data/brain/logs",
+        "RUNTIME_HEARTBEAT_FILE": "data/brain/runtime_heartbeat.json",
+        "RUNTIME_PID_FILE": "data/brain/runtime.pid",
     }
     existing = {line.split("=", 1)[0].strip() for line in lines if "=" in line and not line.lstrip().startswith("#")}
     out = list(lines)
@@ -539,10 +633,15 @@ def main() -> None:
     parser.add_argument("--voice", action="store_true", help="Start voice mode: microphone STT + Piper/pyttsx3 TTS")
     parser.add_argument("--chat", action="store_true", help="Start terminal dialogue mode")
     parser.add_argument("--desktop", action="store_true", help="Start native desktop interface instead of browser UI")
+    parser.add_argument("--service", action="store_true", help="Start headless service mode with heartbeat/logging for watchdog/systemd")
     parser.add_argument("--init-portable", nargs="?", const=".", help="Create portable data folders and .env in this project or target folder")
     parser.add_argument("--host", default=cfg.web_host, help="Web UI host")
     parser.add_argument("--port", type=int, default=cfg.web_port, help="Web UI port")
     args = parser.parse_args()
+
+    if args.service:
+        cfg.runtime.service_mode = True
+    configure_runtime_logging(cfg, service=bool(args.service))
 
     if args.init_portable:
         target = None if args.init_portable == "." else args.init_portable
@@ -553,9 +652,9 @@ def main() -> None:
         print(".env uses relative paths so a portable drive can change drive letter/mount point.")
         return
 
-    selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat, args.desktop) if enabled)
+    selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat, args.desktop, args.service) if enabled)
     if selected_modes > 1:
-        logger.error("--web, --voice, --chat and --desktop are separate modes for now. Start one at a time.")
+        logger.error("--web, --voice, --chat, --desktop and --service are separate modes for now. Start one at a time.")
         sys.exit(2)
 
     if args.web:
@@ -586,6 +685,9 @@ def main() -> None:
     elif args.chat:
         kernel = build_kernel(cfg)
         asyncio.run(run_with_chat(kernel))
+    elif args.service:
+        kernel = build_kernel(cfg)
+        asyncio.run(run_headless(kernel, mode_name="service"))
     else:
         kernel = build_kernel(cfg)
         asyncio.run(run_headless(kernel))

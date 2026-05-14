@@ -346,6 +346,51 @@ class MonologueConfig:
 
 
 @dataclass
+class RuntimeConfig:
+    """V9.5 service/runtime stability settings.
+
+    These settings make JAV safer to run as a long-lived local assistant:
+    heartbeat files for watchdogs, rotating logs, lightweight health checks,
+    optional auto-sleep/consolidation on shutdown, and service-friendly paths.
+    """
+    service_mode: bool = field(default_factory=lambda: _env_bool("JAV_SERVICE_MODE", "false"))
+    watchdog_enabled: bool = field(default_factory=lambda: _env_bool("JAV_WATCHDOG_ENABLED", "true"))
+    heartbeat_interval_seconds: float = field(default_factory=lambda: float(os.environ.get("RUNTIME_HEARTBEAT_INTERVAL_SECONDS", "10")))
+    heartbeat_stale_seconds: float = field(default_factory=lambda: float(os.environ.get("RUNTIME_HEARTBEAT_STALE_SECONDS", "45")))
+    health_check_interval_seconds: float = field(default_factory=lambda: float(os.environ.get("RUNTIME_HEALTH_CHECK_INTERVAL_SECONDS", "30")))
+    auto_sleep_on_shutdown: bool = field(default_factory=lambda: _env_bool("RUNTIME_AUTO_SLEEP_ON_SHUTDOWN", "true"))
+    log_to_file: bool = field(default_factory=lambda: _env_bool("RUNTIME_LOG_TO_FILE", "true"))
+    log_dir: str = field(default_factory=lambda: os.environ.get("RUNTIME_LOG_DIR", ""))
+    log_max_bytes: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_LOG_MAX_BYTES", "2097152")))
+    log_backup_count: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_LOG_BACKUP_COUNT", "5")))
+    pid_file: str = field(default_factory=lambda: os.environ.get("RUNTIME_PID_FILE", ""))
+    heartbeat_file: str = field(default_factory=lambda: os.environ.get("RUNTIME_HEARTBEAT_FILE", ""))
+    crash_report_file: str = field(default_factory=lambda: os.environ.get("RUNTIME_CRASH_REPORT_FILE", ""))
+    max_restart_attempts: int = field(default_factory=lambda: int(os.environ.get("WATCHDOG_MAX_RESTART_ATTEMPTS", "20")))
+    restart_delay_seconds: float = field(default_factory=lambda: float(os.environ.get("WATCHDOG_RESTART_DELAY_SECONDS", "5")))
+
+    def resolve_log_dir(self, data_dir: str) -> str:
+        if self.log_dir.strip():
+            return self.log_dir
+        return str(Path(data_dir).expanduser() / "logs")
+
+    def resolve_pid_file(self, data_dir: str) -> str:
+        if self.pid_file.strip():
+            return self.pid_file
+        return str(Path(data_dir).expanduser() / "runtime.pid")
+
+    def resolve_heartbeat_file(self, data_dir: str) -> str:
+        if self.heartbeat_file.strip():
+            return self.heartbeat_file
+        return str(Path(data_dir).expanduser() / "runtime_heartbeat.json")
+
+    def resolve_crash_report_file(self, data_dir: str) -> str:
+        if self.crash_report_file.strip():
+            return self.crash_report_file
+        return str(Path(data_dir).expanduser() / "runtime_crash_report.json")
+
+
+@dataclass
 class KernelConfig:
     """Top-level configuration for the PCA Kernel and Web UI.
 
@@ -427,6 +472,11 @@ class KernelConfig:
     # V9.1 long-term memory / portable data directory
     # ------------------------------------------------------------------
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+
+    # ------------------------------------------------------------------
+    # V9.5 runtime / service mode / watchdog
+    # ------------------------------------------------------------------
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
 
     # ------------------------------------------------------------------
     # Logging

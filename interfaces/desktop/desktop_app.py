@@ -138,6 +138,8 @@ class DesktopApp:
         add_button(controls, "Read screen", self.read_screen)
         add_button(controls, "Sleep / consolidate", self.sleep_cycle)
         add_button(controls, "Memory / storage status", self.memory_status)
+        add_button(controls, "Runtime / health status", self.runtime_status)
+        add_button(controls, "Runtime self-test", self.runtime_self_test)
         add_button(controls, "Action status", self.action_status)
         add_button(controls, "Web search help", lambda: self._prefill("пошукай в інтернеті "))
         add_button(controls, "Web learn help", lambda: self._prefill("вивчи "))
@@ -154,6 +156,8 @@ class DesktopApp:
         ttk.Label(commands.body, text="Click to fill input", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 6), padx=4)
         examples = [
             "покажи стан пам'яті",
+            "покажи runtime status",
+            "запусти runtime self-test",
             "згадай переносний диск",
             "прочитай файл README.md",
             "знайди error в .",
@@ -262,6 +266,10 @@ class DesktopApp:
             self.action_status(); return
         if lower in {"/memory", "/memory-status", "/storage"}:
             self.memory_status(); return
+        if lower in {"/runtime", "/runtime-status", "/health", "/service-status"}:
+            self.runtime_status(); return
+        if lower in {"/self-test", "/runtime-self-test", "/health-check"}:
+            self.runtime_self_test(); return
         if lower in {"/tasks", "/task-status"} or lower.startswith("/task-status "):
             self.emit("task_chain_status_requested", {"task_id": text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) > 1 else "", "respond": True}, Priority.COGNITIVE); return
         if lower.startswith("/task-step") or lower.startswith("/continue-task"):
@@ -305,6 +313,12 @@ class DesktopApp:
 
     def task_status(self) -> None:
         self.emit("task_chain_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def runtime_status(self) -> None:
+        self.emit("runtime_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def runtime_self_test(self) -> None:
+        self.emit("runtime_self_test_requested", {"respond": True}, Priority.COGNITIVE)
 
     def task_step(self) -> None:
         self.emit("task_chain_step_requested", {"respond": True}, Priority.COGNITIVE)

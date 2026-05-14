@@ -117,6 +117,14 @@ def main() -> None:
         "TASK_CHAINS_AUTO_STEP_DEFAULT": "false",
         "TASK_CHAINS_MAX_STEPS": "8",
         "TASK_CHAINS_STEP_TIMEOUT_SECONDS": "90",
+        "JAV_SERVICE_MODE": "false",
+        "JAV_WATCHDOG_ENABLED": "true",
+        "RUNTIME_LOG_TO_FILE": "true",
+        "RUNTIME_LOG_DIR": "data/brain/logs",
+        "RUNTIME_HEARTBEAT_FILE": "data/brain/runtime_heartbeat.json",
+        "RUNTIME_PID_FILE": "data/brain/runtime.pid",
+        "RUNTIME_HEARTBEAT_INTERVAL_SECONDS": "10",
+        "RUNTIME_HEARTBEAT_STALE_SECONDS": "45",
     })
     write_launchers(dst)
     print(f"Portable JAV installed to: {dst}")

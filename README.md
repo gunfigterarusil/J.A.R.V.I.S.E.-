@@ -538,7 +538,9 @@ Everything is stored in `~/.jarvis_brain/`:
 | V9.1 | ✅ Done | Long-term memory retention + portable paths |
 | V9.2 | ✅ Done | SQLite + vector memory search |
 | V9.3 | ✅ Done | Web learning/search + improved desktop UI/settings usability |
-| V10 | Next | Autonomous task chains / daemon stability, then Android/server/robot bodies |
+| V9.4 | ✅ Done | Autonomous task chains: guided/auto task plans with safety gates |
+| V9.5 | ✅ Done | Runtime / service mode: watchdog, heartbeat, rotating logs, health checks |
+| V10 | Next | Android / server / robot bodies |
 
 
 ### V8 desktop + conversational action MVP details
@@ -1263,3 +1265,77 @@ Natural language also works from chat, voice, and desktop:
 ```
 
 The chain uses memory, self/world model, LLM planning, screen/web/repair/actions, and V7 safety gates. File writes and shell actions still require the configured safety level and approval when needed.
+
+
+---
+
+## V9.5 — Runtime / Service Mode MVP
+
+V9.5 adds the first production-style runtime layer so JAV can run more like a local assistant service instead of only a terminal/Desktop experiment.
+
+### New commands
+
+```bash
+python main.py --service
+python scripts/watchdog.py
+```
+
+Convenience launchers:
+
+```text
+run_service.bat
+run_watchdog.bat
+run_service.sh
+run_watchdog.sh
+```
+
+### What V9.5 adds
+
+- rotating file logs;
+- heartbeat file for watchdogs;
+- PID file;
+- runtime health snapshot;
+- chat/Desktop health commands;
+- user-level systemd service generator;
+- Windows startup launcher generator;
+- graceful signal handling for service shutdown;
+- optional shutdown memory consolidation request.
+
+### Chat/Desktop commands
+
+```text
+/runtime
+/runtime-status
+/health
+/service-status
+/self-test
+/runtime-self-test
+/health-check
+```
+
+Natural language examples:
+
+```text
+покажи runtime status
+перевір стан програми
+запусти runtime self-test
+```
+
+### Portable service layout
+
+When `JAV_PORTABLE=true`, runtime files live beside the program:
+
+```text
+JAV/
+  data/
+    brain/
+      runtime_heartbeat.json
+      runtime_health.json
+      runtime.pid
+      logs/
+        jav_service.log
+    workspace/
+    screenshots/
+```
+
+See `V9_5_RUNTIME_SERVICE_MODE_MVP.md` for setup details.
