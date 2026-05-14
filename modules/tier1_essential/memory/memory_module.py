@@ -1,7 +1,7 @@
 """Tier 1: Memory Module
 
 Manages all memory types:
-- Short-Term Memory (STM): FIFO queue, max 50 events, 5 sec lifetime
+- Short-Term Memory (STM): FIFO queue, configurable lifetime
 - Working Memory (WM): 7 slots, importance-based eviction
 - Episodic Memory: Experience records with importance, emotion tags, decay
 - Semantic Memory: Knowledge graph (SPO triples), vector similarity
@@ -33,7 +33,7 @@ logger = logging.getLogger("memory")  # type: ignore
 STM_MAX_SIZE = 50
 STM_LIFETIME = 5.0
 WM_SLOTS = 7
-EPISODIC_DECAY_RATE = 0.02
+EPISODIC_DECAY_RATE = 0.02  # legacy fallback; V9.1 uses retention_days in MemoryManager
 SEMANTIC_SIMILARITY_THRESHOLD = 0.75
 
 
@@ -69,6 +69,34 @@ class MemoryManager:
         self._store_count = 0
         self._retrieve_count = 0
         self._decay_count = 0
+        # V9.1 long-term retention policy. Defaults are conservative and
+        # overridden from config during module initialization.
+        self._stm_lifetime_seconds = STM_LIFETIME
+        self._episodic_retention_seconds = 730.0 * 86400.0
+        self._episodic_max_items = 20000
+        self._archive_decayed = True
+        self._semantic_autostore = True
+        self._episodic_archive: list[Dict[str, Any]] = []
+
+    def configure(
+        self,
+        *,
+        stm_lifetime_seconds: float | None = None,
+        episodic_retention_days: float | None = None,
+        episodic_max_items: int | None = None,
+        archive_decayed: bool | None = None,
+        semantic_autostore: bool | None = None,
+    ) -> None:
+        if stm_lifetime_seconds is not None:
+            self._stm_lifetime_seconds = max(5.0, float(stm_lifetime_seconds))
+        if episodic_retention_days is not None:
+            self._episodic_retention_seconds = max(1.0, float(episodic_retention_days)) * 86400.0
+        if episodic_max_items is not None:
+            self._episodic_max_items = max(100, int(episodic_max_items))
+        if archive_decayed is not None:
+            self._archive_decayed = bool(archive_decayed)
+        if semantic_autostore is not None:
+            self._semantic_autostore = bool(semantic_autostore)
 
     # STM Operations --------------------------------------------------------
     def stm_push(self, item: Dict[str, Any]) -> None:
@@ -82,7 +110,7 @@ class MemoryManager:
     def stm_flush_expired(self) -> List[Dict[str, Any]]:
         now = time.time()
         expired = []
-        while self._stm_timestamps and (now - self._stm_timestamps[0]) > STM_LIFETIME:
+        while self._stm_timestamps and (now - self._stm_timestamps[0]) > self._stm_lifetime_seconds:
             expired.append(self._stm.popleft())
             self._stm_timestamps.popleft()
         return expired
@@ -105,44 +133,93 @@ class MemoryManager:
 
     # Episodic Memory Operations --------------------------------------------
     def episodic_store(self, experience: Dict[str, Any]) -> None:
+        now = time.time()
         entry = {
+            "id": f"ep_{int(now * 1000)}_{len(self._episodic)}",
             "experience": experience,
-            "importance": experience.get("importance", 0.5),
+            "importance": float(experience.get("importance", 0.5) or 0.5),
             "emotion_tags": experience.get("emotion_tags", []),
-            "timestamp": time.time(),
+            "timestamp": float(experience.get("timestamp", now) or now),
+            "created_at": now,
             "access_count": 0,
+            "text_index": _memory_to_text(experience)[:4000],
         }
         self._episodic.append(entry)
+        self._compact_episodic_if_needed()
         self._store_count += 1
+        if self._semantic_autostore:
+            self._autostore_semantic(experience)
 
     def episodic_recall(self, query: Dict[str, Any], top_k: int = 5) -> List[Dict[str, Any]]:
-        """Recall episodic memories by importance and recency."""
+        """Recall episodic memories by importance, relevance and long-term recency."""
         now = time.time()
         scored = []
+        q_text = str(query.get("text") or query.get("query_text") or query.get("subject") or "")
+        q_tokens = _tokenize(q_text)
         for mem in self._episodic:
-            age = now - mem["timestamp"]
-            decay = math.exp(-EPISODIC_DECAY_RATE * age)
-            q_emotions = query.get("emotion_tags", [])
-            match = sum(1 for e in mem["emotion_tags"] if e in q_emotions)
-            score = mem["importance"] * decay + match * 0.1
+            age = max(0.0, now - float(mem.get("timestamp", now)))
+            # V9.1: decay on a retention horizon measured in days/years, not seconds.
+            long_term_decay = math.exp(-age / max(1.0, self._episodic_retention_seconds))
+            q_emotions = query.get("emotion_tags", []) or []
+            match = sum(1 for e in mem.get("emotion_tags", []) if e in q_emotions)
+            text_score = _token_score(q_tokens, mem.get("text_index") or _memory_to_text(mem.get("experience", {})))
+            access_boost = min(0.25, float(mem.get("access_count", 0)) * 0.02)
+            score = float(mem.get("importance", 0.5)) * (0.55 + 0.45 * long_term_decay) + text_score * 1.25 + match * 0.1 + access_boost
             scored.append((score, mem))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [s[1] for s in scored[:top_k]]
+        recalled = [s[1] for s in scored[:top_k]]
+        for mem in recalled:
+            mem["access_count"] = int(mem.get("access_count", 0)) + 1
+            mem["last_accessed"] = now
+        return recalled
 
     def episodic_apply_decay(self) -> int:
+        """Archive/remove only very old low-importance memories.
+
+        Previous MVP code deleted memories after minutes. V9.1 keeps normal
+        memories for months/years and archives low-importance expired items.
+        """
         now = time.time()
-        decayed_ids = []
-        new_episodic = []
+        kept: list[Dict[str, Any]] = []
+        expired: list[Dict[str, Any]] = []
         for mem in self._episodic:
-            age = now - mem["timestamp"]
-            decay = math.exp(-EPISODIC_DECAY_RATE * age)
-            if decay < 0.05:
-                decayed_ids.append(mem)
+            age = max(0.0, now - float(mem.get("timestamp", now)))
+            importance = float(mem.get("importance", 0.5) or 0.5)
+            if age > self._episodic_retention_seconds and importance < 0.72:
+                expired.append(mem)
             else:
-                new_episodic.append(mem)
-        self._episodic = new_episodic
-        self._decay_count += len(decayed_ids)
-        return len(decayed_ids)
+                kept.append(mem)
+        self._episodic = kept
+        if expired and self._archive_decayed:
+            for mem in expired:
+                mem["archived_at"] = now
+            self._episodic_archive.extend(expired)
+            self._episodic_archive = self._episodic_archive[-self._episodic_max_items:]
+        self._decay_count += len(expired)
+        return len(expired)
+
+    def _compact_episodic_if_needed(self) -> None:
+        if len(self._episodic) <= self._episodic_max_items:
+            return
+        self._episodic.sort(key=lambda m: (float(m.get("importance", 0.5)), float(m.get("timestamp", 0))))
+        overflow = self._episodic[:-self._episodic_max_items]
+        self._episodic = self._episodic[-self._episodic_max_items:]
+        if self._archive_decayed:
+            now = time.time()
+            for mem in overflow:
+                mem["archived_at"] = now
+            self._episodic_archive.extend(overflow)
+            self._episodic_archive = self._episodic_archive[-self._episodic_max_items:]
+
+    def _autostore_semantic(self, experience: Dict[str, Any]) -> None:
+        data = experience.get("data", experience) if isinstance(experience, dict) else {}
+        text = str(data.get("text") or data.get("summary") or data.get("message") or "").strip()
+        if not text:
+            return
+        lower = text.lower()
+        cues = ["remember", "запам", "пам'ятай", "памятай", "my ", "моє", "мій", "моя", "мои", "люблю", "не люблю", "prefer", "віддаю перевагу"]
+        if any(cue in lower for cue in cues):
+            self.semantic_store_triple("user_or_project", "noted", text[:700], confidence=0.72)
 
     # Semantic Memory Operations --------------------------------------------
     def semantic_store_triple(self, subject: str, predicate: str, obj: str,
@@ -155,6 +232,11 @@ class MemoryManager:
             "timestamp": time.time(),
             "last_accessed": time.time(),
         }
+        for old in self._semantic:
+            if old.get("subject") == subject and old.get("predicate") == predicate and old.get("object") == obj:
+                old["confidence"] = max(float(old.get("confidence", 0.0)), confidence)
+                old["last_accessed"] = time.time()
+                return
         self._semantic.append(entry)
         self._store_count += 1
 
@@ -303,11 +385,23 @@ class MemoryModule(CognitiveModule):
         )
         self._manager = MemoryManager()
         self._last_consolidation = 0.0
+        self._last_save = time.time()
+        self._save_interval_seconds = 60.0
         self._kernel: Optional["Kernel"] = None
 
     def initialize(self, kernel: "Kernel") -> None:
         super().initialize(kernel)
         self._kernel = kernel
+        mem_cfg = getattr(getattr(kernel, "config", None), "memory", None)
+        if mem_cfg is not None:
+            self._manager.configure(
+                stm_lifetime_seconds=getattr(mem_cfg, "stm_lifetime_seconds", None),
+                episodic_retention_days=getattr(mem_cfg, "episodic_retention_days", None),
+                episodic_max_items=getattr(mem_cfg, "episodic_max_items", None),
+                archive_decayed=getattr(mem_cfg, "archive_decayed", None),
+                semantic_autostore=getattr(mem_cfg, "semantic_autostore", None),
+            )
+            self._save_interval_seconds = float(getattr(mem_cfg, "save_interval_seconds", 60.0) or 60.0)
         # Load persisted memory on startup
         self._load_persisted()
         # Register event consumers
@@ -319,6 +413,7 @@ class MemoryModule(CognitiveModule):
                 "thought_generated",
                 "response_generated",
                 "memory_request",
+                "memory_status_requested",
                 "kernel_started",
             ],
         )
@@ -334,6 +429,8 @@ class MemoryModule(CognitiveModule):
             await self._handle_response(event.data)
         elif event.type == "memory_request":
             await self._handle_request(event.data)
+        elif event.type == "memory_status_requested":
+            await self._handle_status(event.data)
 
     async def _handle_sensory(self, data: Dict[str, Any]) -> None:
         # Store in STM + WM
@@ -410,6 +507,8 @@ class MemoryModule(CognitiveModule):
             result = {"wm_snapshot": self._manager.wm_snapshot()}
         elif query_type == "episodic":
             query = data.get("query", {})
+            if isinstance(query, dict) and data.get("query_text"):
+                query = {**query, "query_text": data.get("query_text")}
             result = {"episodic_recalls": self._manager.episodic_recall(query)}
         elif query_type == "semantic":
             subject = data.get("subject", "")
@@ -495,6 +594,9 @@ class MemoryModule(CognitiveModule):
         if now - self._last_consolidation > 10.0:
             self._consolidate()
             self._last_consolidation = now
+        if now - self._last_save > self._save_interval_seconds:
+            self._save_all()
+            self._last_save = now
         # Emit snapshot of working memory for other modules
         if self._kernel is not None:
             self._kernel.event_bus.emit(
@@ -512,15 +614,37 @@ class MemoryModule(CognitiveModule):
             if entry["importance"] >= 0.7:
                 self._manager.episodic_store(entry["item"])
 
-    def shutdown(self) -> None:
+    async def _handle_status(self, data: Dict[str, Any]) -> None:
+        if self._kernel is None:
+            return
+        stats = self.to_dict().get("memory_stats", {})
+        text = (
+            f"Memory storage: {self._kernel.persistence._base}\n"
+            f"Counts: {stats.get('counts')}\n"
+            f"Retention: episodic≈{round(self._manager._episodic_retention_seconds / 86400)} days, "
+            f"max_items={self._manager._episodic_max_items}, archive={self._manager._archive_decayed}\n"
+            f"Archive items: {len(self._manager._episodic_archive)}"
+        )
+        self._kernel.event_bus.emit(
+            Event(type="response_generated", data={"text": text, "source": "memory_status"}, source_module=self.module_id),
+            Priority.COGNITIVE,
+        )
+
+    def _save_all(self) -> None:
         if self._kernel is None:
             return
         p = self._kernel.persistence
         p.save("memory_episodic", self._manager._episodic)
+        p.save("memory_episodic_archive", self._manager._episodic_archive)
         p.save("memory_semantic", self._manager._semantic)
         p.save("memory_social", self._manager._social)
         p.save("memory_procedural", self._manager._procedural)
-        logger.info("[Memory] Saved episodic, semantic, social, procedural to disk")
+
+    def shutdown(self) -> None:
+        if self._kernel is None:
+            return
+        self._save_all()
+        logger.info("[Memory] Saved episodic, archive, semantic, social, procedural to disk")
 
     def _load_persisted(self) -> None:
         if self._kernel is None:
@@ -530,6 +654,10 @@ class MemoryModule(CognitiveModule):
         if episodic:
             self._manager._episodic = episodic
             logger.info(f"[Memory] Loaded {len(episodic)} episodic memories")
+        archive = p.load("memory_episodic_archive")
+        if archive:
+            self._manager._episodic_archive = archive
+            logger.info(f"[Memory] Loaded {len(archive)} archived episodic memories")
         semantic = p.load("memory_semantic")
         if semantic:
             self._manager._semantic = semantic
@@ -549,6 +677,10 @@ class MemoryModule(CognitiveModule):
             "store_count": self._manager._store_count,
             "retrieve_count": self._manager._retrieve_count,
             "decay_count": self._manager._decay_count,
+            "archive_count": len(self._manager._episodic_archive),
+            "retention_days": round(self._manager._episodic_retention_seconds / 86400, 2),
+            "stm_lifetime_seconds": self._manager._stm_lifetime_seconds,
+            "storage_path": str(self._kernel.persistence._base) if self._kernel is not None else "",
         }
         return base
 

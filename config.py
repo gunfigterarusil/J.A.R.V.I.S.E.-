@@ -27,6 +27,45 @@ except ImportError:
     pass
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _env_bool(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _default_data_dir() -> str:
+    explicit = (
+        os.environ.get("JARVIS_DATA_DIR")
+        or os.environ.get("MEMORY_DIR")
+        or os.environ.get("PERSISTENCE_DIR")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    if _env_bool("JAV_PORTABLE", "false"):
+        return str(PROJECT_ROOT / "data" / "brain")
+    return "~/.jarvis_brain"
+
+
+def _default_workspace_dir() -> str:
+    explicit = os.environ.get("ACTION_WORKSPACE_PATH", "").strip()
+    if explicit:
+        return explicit
+    if _env_bool("JAV_PORTABLE", "false"):
+        return str(PROJECT_ROOT / "data" / "workspace")
+    return "~/jarvis_workspace"
+
+
+def _default_screenshot_dir() -> str:
+    explicit = os.environ.get("SCREENSHOT_DIR", "").strip()
+    if explicit:
+        return explicit
+    if _env_bool("JAV_PORTABLE", "false"):
+        return str(PROJECT_ROOT / "data" / "screenshots")
+    return ""
+
+
 @dataclass
 class SubjectiveFieldDefaults:
     """Default starting values for the SubjectiveField."""
@@ -144,7 +183,7 @@ class ScreenConfig:
     """
     enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_READING_ENABLED", "true").lower() == "true")
     auto_watch_enabled: bool = field(default_factory=lambda: os.environ.get("SCREEN_AUTO_WATCH_ENABLED", "false").lower() == "true")
-    screenshot_dir: str = field(default_factory=lambda: os.environ.get("SCREENSHOT_DIR", ""))
+    screenshot_dir: str = field(default_factory=_default_screenshot_dir)
     ocr_backend: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_BACKEND", "tesseract"))  # tesseract for V3 MVP
     ocr_language: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_LANGUAGE", "eng"))
     ocr_config: str = field(default_factory=lambda: os.environ.get("SCREEN_OCR_CONFIG", "--psm 6"))
@@ -210,7 +249,7 @@ class ActionConfig:
     permission level is raised to L5.
     """
     enabled: bool = field(default_factory=lambda: os.environ.get("ACTIONS_V7_ENABLED", "true").lower() == "true")
-    workspace_path: str = field(default_factory=lambda: os.environ.get("ACTION_WORKSPACE_PATH", "~/jarvis_workspace"))
+    workspace_path: str = field(default_factory=_default_workspace_dir)
     allow_shell: bool = field(default_factory=lambda: os.environ.get("ACTION_ALLOW_SHELL", "false").lower() == "true")
     command_timeout: float = field(default_factory=lambda: float(os.environ.get("ACTION_COMMAND_TIMEOUT", "20")))
     max_read_chars: int = field(default_factory=lambda: int(os.environ.get("ACTION_MAX_READ_CHARS", "12000")))
@@ -219,6 +258,22 @@ class ActionConfig:
         x.strip() for x in os.environ.get("ACTION_ALLOWED_COMMANDS", "python,python3,py,pytest,pip,pip3,git").split(",")
         if x.strip()
     ])
+
+
+@dataclass
+class MemoryConfig:
+    """V9.1 long-term memory and portable storage settings.
+
+    Episodic decay is now measured in days, not seconds. Important memories
+    are archived/retained instead of silently disappearing after minutes.
+    """
+    data_dir: str = field(default_factory=_default_data_dir)
+    stm_lifetime_seconds: float = field(default_factory=lambda: float(os.environ.get("MEMORY_STM_LIFETIME_SECONDS", "30")))
+    episodic_retention_days: float = field(default_factory=lambda: float(os.environ.get("MEMORY_EPISODIC_RETENTION_DAYS", "730")))
+    episodic_max_items: int = field(default_factory=lambda: int(os.environ.get("MEMORY_EPISODIC_MAX_ITEMS", "20000")))
+    archive_decayed: bool = field(default_factory=lambda: os.environ.get("MEMORY_ARCHIVE_DECAYED", "true").lower() == "true")
+    semantic_autostore: bool = field(default_factory=lambda: os.environ.get("MEMORY_SEMANTIC_AUTOSTORE", "true").lower() == "true")
+    save_interval_seconds: float = field(default_factory=lambda: float(os.environ.get("MEMORY_SAVE_INTERVAL_SECONDS", "60")))
 
 
 @dataclass
@@ -327,6 +382,11 @@ class KernelConfig:
     screen: ScreenConfig = field(default_factory=ScreenConfig)
 
     # ------------------------------------------------------------------
+    # V9.1 long-term memory / portable data directory
+    # ------------------------------------------------------------------
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
+
+    # ------------------------------------------------------------------
     # Logging
     # ------------------------------------------------------------------
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -339,7 +399,7 @@ class KernelConfig:
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
-    persistence_dir: str = "~/.jarvis_brain"
+    persistence_dir: str = field(default_factory=_default_data_dir)
 
     # ------------------------------------------------------------------
     # Module auto-discovery

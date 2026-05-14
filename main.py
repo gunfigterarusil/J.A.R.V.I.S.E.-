@@ -155,7 +155,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /see, /self, /world, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit.\n")
+    print("Jarvis chat mode. Type /see, /self, /world, /memory, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -168,6 +168,14 @@ async def run_with_chat(kernel: Kernel) -> None:
 
             # V7 safe PC automation commands
             lower = user_text.lower()
+            if lower in {"/memory", "/memory-status", "/storage"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="memory_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response()
+                continue
+
             if lower in {"/actions", "/action-status", "/workspace"}:
                 kernel.event_bus.emit(
                     CognitiveEvent(type="action_status_requested", data={"respond": True}, source_module="cli_chat"),
@@ -392,6 +400,40 @@ def run_with_web(kernel: Kernel, host: str, port: int) -> None:
     )
 
 
+
+def init_portable_layout(target: str | None = None) -> Path:
+    """Create a portable data layout and .env defaults.
+
+    If target is omitted, it uses the current project directory. This does not
+    copy files; use scripts/install_portable.py to clone the whole app to a drive.
+    """
+    root = Path(target).expanduser().resolve() if target else _ROOT
+    data = root / "data"
+    brain = data / "brain"
+    workspace = data / "workspace"
+    screenshots = data / "screenshots"
+    for folder in (brain, workspace, screenshots):
+        folder.mkdir(parents=True, exist_ok=True)
+    env_path = root / ".env"
+    lines = []
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    updates = {
+        "JAV_PORTABLE": "true",
+        "JARVIS_DATA_DIR": "data/brain",
+        "ACTION_WORKSPACE_PATH": "data/workspace",
+        "SCREENSHOT_DIR": "data/screenshots",
+    }
+    existing = {line.split("=", 1)[0].strip() for line in lines if "=" in line and not line.lstrip().startswith("#")}
+    out = list(lines)
+    for key, value in updates.items():
+        if key in existing:
+            out = [f"{key}={value}" if line.split("=", 1)[0].strip() == key and "=" in line and not line.lstrip().startswith("#") else line for line in out]
+        else:
+            out.append(f"{key}={value}")
+    env_path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+    return root
+
 def main() -> None:
     cfg = KernelConfig()
 
@@ -400,9 +442,19 @@ def main() -> None:
     parser.add_argument("--voice", action="store_true", help="Start voice mode: microphone STT + Piper/pyttsx3 TTS")
     parser.add_argument("--chat", action="store_true", help="Start terminal dialogue mode")
     parser.add_argument("--desktop", action="store_true", help="Start native desktop interface instead of browser UI")
+    parser.add_argument("--init-portable", nargs="?", const=".", help="Create portable data folders and .env in this project or target folder")
     parser.add_argument("--host", default=cfg.web_host, help="Web UI host")
     parser.add_argument("--port", type=int, default=cfg.web_port, help="Web UI port")
     args = parser.parse_args()
+
+    if args.init_portable:
+        target = None if args.init_portable == "." else args.init_portable
+        root = init_portable_layout(target)
+        print(f"Portable layout initialized at: {root}")
+        print(f"Memory: {root / 'data' / 'brain'}")
+        print(f"Workspace: {root / 'data' / 'workspace'}")
+        print(".env uses relative paths so a portable drive can change drive letter/mount point.")
+        return
 
     selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat, args.desktop) if enabled)
     if selected_modes > 1:

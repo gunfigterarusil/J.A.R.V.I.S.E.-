@@ -75,9 +75,13 @@ class Kernel:
 
         # ── Safety layer — ALWAYS active, cannot be unloaded ────────────────
         self.audit_log = AuditLog(self.persistence._base)
-        self.sandbox = Sandbox(
-            extra_allowed=getattr(config, "sandbox_extra_paths", []) if config else []
-        )
+        sandbox_allowed = list(getattr(config, "sandbox_extra_paths", []) if config else [])
+        if config is not None:
+            sandbox_allowed.extend([
+                getattr(config, "persistence_dir", "~/.jarvis_brain"),
+                getattr(getattr(config, "actions", None), "workspace_path", "~/jarvis_workspace"),
+            ])
+        self.sandbox = Sandbox(extra_allowed=sandbox_allowed)
         self.constitution = SafetyConstitution()
         self.risk_engine = RiskEngine()
         self.permission_manager = PermissionManager(

@@ -1044,3 +1044,98 @@ Natural phrases now work from chat, voice and desktop, not only slash commands:
 All external actions still pass through the V7 safety layer and workspace sandbox.
 
 Repair requests now start a safe diagnostics pass inside `ACTION_WORKSPACE_PATH`; automatic project-wide rewrites are intentionally not silent.
+
+---
+
+## V9.1 Long-Term Memory + Portable Mode
+
+V9.1 fixes the earlier short episodic-memory retention and adds portable storage controls.
+
+### Memory location
+
+JAV now stores brain state in:
+
+```env
+JARVIS_DATA_DIR=/path/to/brain-data
+```
+
+If `JAV_PORTABLE=true`, the default becomes:
+
+```text
+data/brain
+```
+
+beside the program folder. This makes it suitable for a portable HDD/SSD.
+
+### Portable setup
+
+Initialize portable folders in the current project:
+
+```bash
+python main.py --init-portable
+```
+
+Create a portable copy on another drive:
+
+```bash
+python scripts/install_portable.py E:/JAV
+```
+
+The portable copy creates:
+
+```text
+data/brain       memory and brain state
+data/workspace   safe editable workspace
+data/screenshots OCR screenshots
+```
+
+### Desktop settings
+
+Open:
+
+```bash
+python main.py --desktop
+```
+
+Then use **Settings Center → Portable / Paths** and **Memory / Sleep** to set:
+
+```text
+JAV_PORTABLE
+JARVIS_DATA_DIR
+ACTION_WORKSPACE_PATH
+SCREENSHOT_DIR
+MEMORY_EPISODIC_RETENTION_DAYS
+MEMORY_EPISODIC_MAX_ITEMS
+```
+
+### Memory status
+
+In chat or desktop, ask naturally:
+
+```text
+покажи стан пам'яті
+де зберігається пам'ять
+memory status
+```
+
+or use:
+
+```text
+/memory
+/storage
+```
+
+### Retention
+
+Default V9.1 policy:
+
+```env
+MEMORY_STM_LIFETIME_SECONDS=30
+MEMORY_EPISODIC_RETENTION_DAYS=730
+MEMORY_EPISODIC_MAX_ITEMS=20000
+MEMORY_ARCHIVE_DECAYED=true
+MEMORY_SEMANTIC_AUTOSTORE=true
+MEMORY_SAVE_INTERVAL_SECONDS=60
+```
+
+This means normal episodic memories can persist for about two years, and semantic/procedural/user-profile memories can persist indefinitely as long as the data folder is kept.

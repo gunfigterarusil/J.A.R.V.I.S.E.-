@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import tkinter as tk
 from typing import Callable, Dict, List, Tuple
 
@@ -24,6 +24,13 @@ class SettingSpec:
 
 
 SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
+    "Portable / Paths": [
+        SettingSpec("JAV_PORTABLE", "Portable mode", "false", "Store data beside the program when true", kind="bool"),
+        SettingSpec("JARVIS_DATA_DIR", "Brain / memory data directory", "", "Example: E:/JAV/data/brain"),
+        SettingSpec("ACTION_WORKSPACE_PATH", "Workspace directory", "~/jarvis_workspace", "Files Jarvis can safely edit"),
+        SettingSpec("SCREENSHOT_DIR", "Screenshot directory", "", "Leave empty to use memory_dir/screenshots"),
+        SettingSpec("PIPER_OUTPUT_DIR", "Piper audio output directory", "", "Leave empty for temporary audio"),
+    ],
     "LLM": [
         SettingSpec("OLLAMA_HOST", "Ollama host", "http://localhost:11434"),
         SettingSpec("OLLAMA_MODEL", "Ollama model", "llama3.2"),
@@ -65,7 +72,6 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
     ],
     "Actions": [
         SettingSpec("ACTIONS_V7_ENABLED", "Enable safe actions", "true", kind="bool"),
-        SettingSpec("ACTION_WORKSPACE_PATH", "Workspace path", "~/jarvis_workspace"),
         SettingSpec("ACTION_MAX_READ_CHARS", "Max read chars", "12000"),
         SettingSpec("ACTION_MAX_LIST_ENTRIES", "Max list entries", "120"),
         SettingSpec("ACTION_ALLOW_SHELL", "Allow shell actions", "false", kind="bool"),
@@ -81,6 +87,12 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
         SettingSpec("CODE_REPAIR_REQUIRE_LLM", "Require LLM for patch", "true", kind="bool"),
     ],
     "Memory / Sleep": [
+        SettingSpec("MEMORY_STM_LIFETIME_SECONDS", "Short-term memory lifetime seconds", "30"),
+        SettingSpec("MEMORY_EPISODIC_RETENTION_DAYS", "Episodic retention days", "730"),
+        SettingSpec("MEMORY_EPISODIC_MAX_ITEMS", "Max episodic items", "20000"),
+        SettingSpec("MEMORY_ARCHIVE_DECAYED", "Archive expired memories", "true", kind="bool"),
+        SettingSpec("MEMORY_SEMANTIC_AUTOSTORE", "Auto-store important facts", "true", kind="bool"),
+        SettingSpec("MEMORY_SAVE_INTERVAL_SECONDS", "Memory save interval seconds", "60"),
         SettingSpec("SLEEP_V6_ENABLED", "Enable sleep/consolidation", "true", kind="bool"),
         SettingSpec("SLEEP_AUTO_ENABLED", "Auto sleep", "true", kind="bool"),
         SettingSpec("SLEEP_AUTO_INTERVAL", "Auto interval seconds", "900"),
@@ -211,10 +223,20 @@ class SettingsWindow(tk.Toplevel):
                 box.grid(row=row, column=1, sticky="w", pady=5)
             else:
                 show = "*" if spec.kind == "password" else ""
-                entry = ttk.Entry(body, textvariable=var, width=72, show=show)
-                entry.grid(row=row, column=1, sticky="ew", pady=5)
+                field_frame = ttk.Frame(body)
+                field_frame.grid(row=row, column=1, sticky="ew", pady=5)
+                field_frame.columnconfigure(0, weight=1)
+                entry = ttk.Entry(field_frame, textvariable=var, width=60, show=show)
+                entry.grid(row=0, column=0, sticky="ew")
+                if spec.key in {"JARVIS_DATA_DIR", "ACTION_WORKSPACE_PATH", "SCREENSHOT_DIR", "PIPER_OUTPUT_DIR"}:
+                    ttk.Button(field_frame, text="Browse", command=lambda v=var: self._browse_dir(v)).grid(row=0, column=1, padx=(6, 0))
             ttk.Label(body, text=spec.key, foreground="#777").grid(row=row, column=2, sticky="w", padx=(10, 0), pady=5)
         body.columnconfigure(1, weight=1)
+
+    def _browse_dir(self, var: tk.StringVar) -> None:
+        selected = filedialog.askdirectory(parent=self, title="Choose directory")
+        if selected:
+            var.set(selected)
 
     def _reload(self) -> None:
         self.values = load_env(self.env_path) or load_env(self.example_path)

@@ -187,6 +187,8 @@ class ActionIntentModule(CognitiveModule):
             return "event", "sleep_cycle_requested", {"force": True}, ""
 
         # Status/self/world/settings.
+        if any(p in lower for p in ["статус пам", "стан пам", "де пам", "storage status", "memory status", "покажи пам", "пам'ять", "память"]):
+            return "event", "memory_status_requested", {}, ""
         if any(p in lower for p in ["статус дій", "статус action", "action status", "що ти можеш зробити", "покажи можливості"]):
             return "event", "action_status_requested", {}, ""
         if any(p in lower for p in ["хто ти", "покажи self", "твій стан", "що ти знаєш про себе", "who are you"]):

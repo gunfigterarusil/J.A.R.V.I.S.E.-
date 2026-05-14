@@ -7,16 +7,24 @@ unless the user explicitly adds more paths at runtime.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import List, Tuple
 
 logger = logging.getLogger("core.safety.sandbox")
 
 # Paths where the brain is allowed to write without user confirmation.
-_DEFAULT_WRITE_PATHS: List[Path] = [
-    Path("~/jarvis_workspace").expanduser().resolve(),
-    Path("~/.jarvis_brain").expanduser().resolve(),
-]
+def _default_write_paths() -> List[Path]:
+    paths = [
+        Path(os.environ.get("ACTION_WORKSPACE_PATH", "~/jarvis_workspace")).expanduser().resolve(),
+        Path(os.environ.get("JARVIS_DATA_DIR", os.environ.get("MEMORY_DIR", os.environ.get("PERSISTENCE_DIR", "~/.jarvis_brain")))).expanduser().resolve(),
+    ]
+    if os.environ.get("JAV_PORTABLE", "false").lower() == "true":
+        project_root = Path(__file__).resolve().parents[2]
+        paths.extend([project_root / "data", project_root / "data" / "workspace", project_root / "data" / "brain"])
+    return list(dict.fromkeys(p.resolve() for p in paths))
+
+_DEFAULT_WRITE_PATHS: List[Path] = _default_write_paths()
 
 # Paths that are always forbidden to write, regardless of allowed list.
 _FORBIDDEN_WRITE_PATHS: List[Path] = [

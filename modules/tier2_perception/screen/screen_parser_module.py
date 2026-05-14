@@ -173,7 +173,12 @@ class ScreenParserModule(CognitiveModule):
         except ImportError as exc:
             raise RuntimeError("Missing Python packages: pip install mss Pillow") from exc
 
-        out_dir = Path(self.screenshot_dir).expanduser() if self.screenshot_dir else Path.home() / ".jarvis_brain" / "screenshots"
+        if self.screenshot_dir:
+            out_dir = Path(self.screenshot_dir).expanduser()
+        elif self._kernel is not None:
+            out_dir = Path(self._kernel.persistence._base) / "screenshots"
+        else:
+            out_dir = Path.home() / ".jarvis_brain" / "screenshots"
         out_dir.mkdir(parents=True, exist_ok=True)
         path = out_dir / f"{request_id}.png"
 

@@ -101,6 +101,7 @@ class DesktopApp:
         ttk.Button(right, text="Read screen (/see)", command=self.read_screen).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Sleep / consolidate", command=self.sleep_cycle).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Action status", command=self.action_status).pack(fill=tk.X, pady=3)
+        ttk.Button(right, text="Memory / storage status", command=self.memory_status).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Settings Center", command=self.open_settings).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Safety L1", command=lambda: self.set_safety(1)).pack(fill=tk.X, pady=3)
         ttk.Button(right, text="Safety L4 file-write", command=lambda: self.set_safety(4)).pack(fill=tk.X, pady=3)
@@ -108,6 +109,7 @@ class DesktopApp:
 
         ttk.Label(right, text="Fast commands", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(16, 6))
         examples = [
+            "покажи стан пам'яті",
             "прочитай файл README.md",
             "знайди error в .",
             "покажи файли .",
@@ -219,6 +221,9 @@ class DesktopApp:
         if lower in {"/actions", "/workspace", "/action-status"}:
             self.action_status()
             return
+        if lower in {"/memory", "/memory-status", "/storage"}:
+            self.memory_status()
+            return
         if lower.startswith("/approve"):
             parts = text.split(maxsplit=1)
             if len(parts) == 2:
@@ -253,6 +258,9 @@ class DesktopApp:
     def action_status(self) -> None:
         self.emit("action_status_requested", {"respond": True}, Priority.COGNITIVE)
 
+    def memory_status(self) -> None:
+        self.emit("memory_status_requested", {"respond": True}, Priority.COGNITIVE)
+
     def open_settings(self) -> None:
         SettingsWindow(self.root, on_saved=self._settings_saved)
 
@@ -267,7 +275,12 @@ class DesktopApp:
                     actions.allow_shell = updates["ACTION_ALLOW_SHELL"].lower() == "true"
                 if "ACTIONS_V7_ENABLED" in updates:
                     actions.enabled = updates["ACTIONS_V7_ENABLED"].lower() == "true"
-            self._append("system", "Settings saved. Restart JAV for all modules to reload them; some action settings were applied live.")
+            changed_paths = []
+            for key in ("JARVIS_DATA_DIR", "ACTION_WORKSPACE_PATH", "SCREENSHOT_DIR"):
+                if key in updates and updates[key]:
+                    changed_paths.append(f"{key}={updates[key]}")
+            extra = "\n" + "\n".join(changed_paths) if changed_paths else ""
+            self._append("system", "Settings saved. Restart JAV for all modules to reload memory paths, providers, voice, OCR and module options. Some action settings were applied live." + extra)
         except Exception as exc:
             self._append("system", f"Settings saved, but live apply failed: {exc}")
 

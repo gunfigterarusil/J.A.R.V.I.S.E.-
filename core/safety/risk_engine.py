@@ -168,13 +168,17 @@ def _flatten(data: dict, _depth: int = 0) -> str:
 
 
 def _in_sandbox(path: str) -> bool:
+    import os
     from pathlib import Path
     try:
         resolved = Path(path).expanduser().resolve()
-        for base in [
-            Path("~/jarvis_workspace").expanduser().resolve(),
-            Path("~/.jarvis_brain").expanduser().resolve(),
-        ]:
+        bases = [
+            Path(os.environ.get("ACTION_WORKSPACE_PATH", "~/jarvis_workspace")).expanduser().resolve(),
+            Path(os.environ.get("JARVIS_DATA_DIR", os.environ.get("MEMORY_DIR", os.environ.get("PERSISTENCE_DIR", "~/.jarvis_brain")))).expanduser().resolve(),
+        ]
+        if os.environ.get("JAV_PORTABLE", "false").lower() == "true":
+            bases.append(Path(__file__).resolve().parents[2] / "data")
+        for base in bases:
             try:
                 resolved.relative_to(base)
                 return True
