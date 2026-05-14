@@ -533,7 +533,9 @@ Everything is stored in `~/.jarvis_brain/`:
 | V6 | ✅ MVP Done | Sleep/dream replay + memory consolidation |
 | V7 | ✅ MVP Done | PC automation via tier4_actions (safety-gated) |
 | V8 | ✅ MVP Done | Native desktop app + conversational safe actions |
-| V9 | Next | Android / server / robot bodies |
+| V8.1 | ✅ MVP Done | Settings Center + broader natural voice/chat actions |
+| V9 | ✅ MVP Done | Cognitive Project Repair Agent: diagnose → memory/self/world → LLM patch → safety apply |
+| V10 | Next | Android / server / robot bodies |
 
 
 ### V8 desktop + conversational action MVP details
@@ -563,7 +565,62 @@ pip install pyinstaller
 python scripts/build_desktop_app.py
 ```
 
-Repair/fix requests are recognized, but full autonomous code repair is intentionally not unrestricted yet. The next deeper upgrade would be a Code Repair Agent: inspect → test → propose patch → approve → write → verify.
+Repair/fix requests now route into **V9 Project Repair Agent**. It diagnoses the project, pulls cognitive context, asks the LLM for a minimal patch, validates the proposal, and applies only through V7 safety-gated file writes.
+
+
+### V9 cognitive project repair MVP details
+
+V9 adds `modules/tier3_reasoning/code_repair/code_repair_module.py`, a cognitive repair loop designed to behave like a careful assistant rather than a blind file-rewriter.
+
+Workflow:
+
+```text
+user says: "виправ помилки в ."
+→ action_intent detects repair intent
+→ code_repair starts perception/diagnostics
+→ memory_request retrieves relevant past context
+→ self_model/world_model/context_request refresh identity/environment state
+→ LLMRouter is used as repair cortex for "how to fix" reasoning
+→ proposed file contents are locally validated with py_compile
+→ proposal is shown to the user
+→ user says "застосуй ремонт rp..."
+→ V7 action_request/write_file applies through sandbox, permission, risk, audit
+```
+
+Useful chat/voice phrases:
+
+```text
+виправ помилки в .
+почини проєкт у .
+fix errors in .
+зроби патч для помилки в .
+застосуй ремонт rp1234567890
+apply repair rp1234567890
+```
+
+Slash command equivalents:
+
+```text
+/repair .
+/apply-repair rp1234567890
+```
+
+Configuration:
+
+```env
+CODE_REPAIR_V9_ENABLED=true
+CODE_REPAIR_MAX_FILES=160
+CODE_REPAIR_MAX_FILE_CHARS=18000
+CODE_REPAIR_AUTO_APPLY=false
+CODE_REPAIR_REQUIRE_LLM=true
+```
+
+Safety notes:
+
+- V9 does not write directly to disk.
+- Actual modifications are submitted as V7 `write_file` actions.
+- File writes require safety L4 and remain sandboxed to `ACTION_WORKSPACE_PATH`.
+- If no real LLM is configured, V9 still diagnoses and produces a plan, but will not invent patches.
 
 
 ### V7 safe PC automation MVP details

@@ -74,6 +74,11 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
         SettingSpec("NATURAL_ACTIONS_ENABLED", "Natural language actions", "true", kind="bool"),
         SettingSpec("NATURAL_ACTIONS_REQUIRE_EXPLICIT_VERB", "Require explicit action verb", "true", kind="bool"),
         SettingSpec("REPAIR_AGENT_ENABLED", "Enable repair intent", "true", kind="bool"),
+        SettingSpec("CODE_REPAIR_V9_ENABLED", "Enable V9 repair agent", "true", kind="bool"),
+        SettingSpec("CODE_REPAIR_MAX_FILES", "Repair max files", "160"),
+        SettingSpec("CODE_REPAIR_MAX_FILE_CHARS", "Repair max file chars", "18000"),
+        SettingSpec("CODE_REPAIR_AUTO_APPLY", "Auto-apply repair proposals", "false", kind="bool"),
+        SettingSpec("CODE_REPAIR_REQUIRE_LLM", "Require LLM for patch", "true", kind="bool"),
     ],
     "Memory / Sleep": [
         SettingSpec("SLEEP_V6_ENABLED", "Enable sleep/consolidation", "true", kind="bool"),

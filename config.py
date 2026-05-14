@@ -186,6 +186,21 @@ class NaturalActionConfig:
     require_explicit_verb: bool = field(default_factory=lambda: os.environ.get("NATURAL_ACTIONS_REQUIRE_EXPLICIT_VERB", "true").lower() == "true")
     repair_agent_enabled: bool = field(default_factory=lambda: os.environ.get("REPAIR_AGENT_ENABLED", "true").lower() == "true")
 
+
+
+@dataclass
+class CodeRepairConfig:
+    """V9 project repair agent settings.
+
+    The repair agent diagnoses code, asks the LLM for a minimal patch, validates
+    the proposed files locally, and applies changes only through V7 safe actions.
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("CODE_REPAIR_V9_ENABLED", "true").lower() == "true")
+    max_files: int = field(default_factory=lambda: int(os.environ.get("CODE_REPAIR_MAX_FILES", "160")))
+    max_file_chars: int = field(default_factory=lambda: int(os.environ.get("CODE_REPAIR_MAX_FILE_CHARS", "18000")))
+    auto_apply: bool = field(default_factory=lambda: os.environ.get("CODE_REPAIR_AUTO_APPLY", "false").lower() == "true")
+    require_llm_for_patch: bool = field(default_factory=lambda: os.environ.get("CODE_REPAIR_REQUIRE_LLM", "true").lower() == "true")
+
 @dataclass
 class ActionConfig:
     """V7 safe PC automation settings.
@@ -299,6 +314,7 @@ class KernelConfig:
     # ------------------------------------------------------------------
     actions: ActionConfig = field(default_factory=ActionConfig)
     natural_actions: NaturalActionConfig = field(default_factory=NaturalActionConfig)
+    code_repair: CodeRepairConfig = field(default_factory=CodeRepairConfig)
 
     # ------------------------------------------------------------------
     # Voice interface

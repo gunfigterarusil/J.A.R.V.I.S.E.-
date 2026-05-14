@@ -17,8 +17,8 @@ from core.safety.permission_manager import PermissionLevel
 
 
 class ActionIntentModule(CognitiveModule):
-    MODULE_DESCRIPTION = "V8.1 natural-language/voice bridge to all safe Jarvis actions"
-    MODULE_VERSION = "0.2.0"
+    MODULE_DESCRIPTION = "V9 natural-language/voice bridge to safe Jarvis actions and cognitive repair"
+    MODULE_VERSION = "0.3.0"
 
     def __init__(self) -> None:
         super().__init__(module_id="action_intent", cost={"cpu": 0.05, "gpu": 0.0, "ram": 0.03})
@@ -61,6 +61,8 @@ class ActionIntentModule(CognitiveModule):
             self._set_safety(int(payload.get("level", 1)))
         elif kind == "repair":
             self._emit_event("code_repair_requested", payload, event)
+        elif kind == "repair_apply":
+            self._emit_event("code_repair_apply_requested", payload, event)
         elif kind == "response" and response:
             self._respond(response)
 
@@ -194,15 +196,23 @@ class ActionIntentModule(CognitiveModule):
         if any(p in lower for p in ["покажи налаштування", "відкрий налаштування", "settings", "налаштування"]):
             return "response", "settings", {}, "Налаштування доступні у Desktop → Settings Center. Там можна керувати LLM, голосом, OCR, action executor, safety, sleep, emotion, self/world model і web UI. З голосу/чату я можу змінювати live safety-рівень, а повні env-налаштування краще міняти через Settings Center."
 
-        # Code repair intent. This starts diagnostics; patch writing still uses safety.
-        repair_words = ["виправ", "почини", "пофікси", "исправ", "fix", "repair"]
+        # Apply a ready V9 repair proposal. Still goes through V7 write_file safety.
+        m = re.search(r"(?:застосуй|примени|apply)\s+(?:ремонт|repair|patch|патч)?\s*(rp\d+)?", lower)
+        if m and ("застосуй" in lower or "apply" in lower or "примени" in lower):
+            return "repair_apply", "code_repair_apply_requested", {"proposal_id": (m.group(1) or "").strip()}, ""
+
+        # Code repair intent. This starts diagnostics + LLM patch proposal; writing still uses V7 safety.
+        repair_words = ["виправ", "почини", "пофікси", "исправ", "fix", "repair", "зроби патч", "підготуй патч"]
         error_words = ["помил", "ошиб", "error", "bug", "traceback", "exception", "проект", "проєкт", "код"]
         if self.repair_agent_enabled and any(w in lower for w in repair_words) and any(w in lower for w in error_words):
             path = "."
-            m = re.search(r"(?:в|у|in)\s+([^,.!?]+)$", raw, flags=re.IGNORECASE)
-            if m:
-                path = m.group(1).strip().strip('"\'') or "."
-            return "repair", "code_repair_requested", {"path": path, "request_id": f"repair_{int(time.time() * 1000)}"}, ""
+            # Prefer the last location phrase, e.g. "виправ помилки в testproj" -> testproj.
+            matches = re.findall(r"(?:\s|^)(?:в|у|in)\s+([^,.!?]+)", raw, flags=re.IGNORECASE)
+            if matches:
+                path = matches[-1].strip().strip('"\'') or "."
+            # Cleanup common leading nouns accidentally captured from Ukrainian/Russian phrasing.
+            path = re.sub(r"^(?:помилки|ошибки|errors|баги|bugs)\s+(?:в|у|in)\s+", "", path, flags=re.IGNORECASE).strip() or "."
+            return "repair", "code_repair_requested", {"path": path, "request_id": f"repair_{int(time.time() * 1000)}", "request_text": raw}, ""
 
         # File listing.
         m = re.search(r"(?:покажи|покаж[иі]|список|list|show)\s+(?:файли|файлів|files)(?:\s+(?:в|у|in)?\s*(.+))?$", raw, flags=re.IGNORECASE)
@@ -254,7 +264,7 @@ class ActionIntentModule(CognitiveModule):
             "supported_natural_intents": [
                 "screen_read", "sleep_consolidate", "self_status", "world_status", "settings_help",
                 "action_status", "set_safety", "approve_pending", "deny_pending", "list_files", "read_file",
-                "search_files", "create_dir", "write_file", "append_file", "run_command", "code_repair_diagnostics",
+                "search_files", "create_dir", "write_file", "append_file", "run_command", "code_repair_v9", "apply_repair_proposal",
             ],
         })
         return base

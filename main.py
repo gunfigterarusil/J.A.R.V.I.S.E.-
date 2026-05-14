@@ -155,7 +155,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /see, /self, /world, /sleep, /dream, /consolidate, /actions, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit.\n")
+    print("Jarvis chat mode. Type /see, /self, /world, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -261,6 +261,25 @@ async def run_with_chat(kernel: Kernel) -> None:
             if lower.startswith("/run "):
                 command = user_text.split(maxsplit=1)[1].strip()
                 emit_action("run_command", {"cwd": ".", "command": command})
+                await wait_action_response(timeout=60.0)
+                continue
+
+            if lower.startswith("/repair"):
+                path = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else "."
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="code_repair_requested", data={"path": path, "request_id": f"cli_repair_{int(__import__('time').time() * 1000)}", "request_text": user_text}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
+                continue
+
+            if lower.startswith("/apply-repair") or lower.startswith("/apply repair"):
+                parts = user_text.split(maxsplit=1)
+                proposal_id = parts[1].strip() if len(parts) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="code_repair_apply_requested", data={"proposal_id": proposal_id}, source_module="cli_chat"),
+                    Priority.REALTIME,
+                )
                 await wait_action_response(timeout=60.0)
                 continue
 
