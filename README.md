@@ -173,9 +173,11 @@ This is the V1 real dialogue loop:
 user text → memory retrieval → LLMRouter → response_generated → dialogue history persistence
 ```
 
-Use this mode to test Jarvis before enabling voice or PC automation. You can also test V3 screen reading here:
+Use this mode to test Jarvis before enabling voice or PC automation. You can also inspect V5 state and test V3 screen reading here:
 
 ```text
+/self
+/world
 /see
 /read-screen
 /explain-screen
@@ -466,8 +468,10 @@ Everything is stored in `~/.jarvis_brain/`:
 | `memory_social.json` | Social memory |
 | `goals.json` | In-progress goals |
 | `personality.json` | Big Five traits + history |
-| `self_model.json` | Identity, capabilities, attachment |
-| `world_model.json` | Observed user patterns |
+| `self_model.json` | Legacy identity snapshot |
+| `self_model_v5.json` | V5 mature identity, capabilities, limits, reliability |
+| `world_model.json` | Legacy observed user patterns |
+| `world_model_v5.json` | V5 projects, environment, open loops, causal beliefs |
 | `permissions.json` | Granted/denied action overrides |
 | `idea_memory.json` | Generated theories and hypotheses |
 | `audit.jsonl` | Append-only log of all action attempts |
@@ -485,8 +489,8 @@ Everything is stored in `~/.jarvis_brain/`:
 | V2 | ✅ Stable MVP | Voice STT + V1 dialogue loop + Piper/pyttsx3 TTS fallback |
 | V3 | ✅ MVP Done | Screen reading (OCR + ScreenParser) |
 | V4 | ✅ MVP Done | Rich emotions + deep internal monologue |
-| V5 | Next | World model + self-model maturity |
-| V6 | Planned | Sleep/dream replay + memory consolidation |
+| V5 | ✅ MVP Done | World model + mature self-model |
+| V6 | Next | Sleep/dream replay + memory consolidation |
 | V7 | Planned | PC automation via tier4_actions (safety-gated) |
 | V8 | Planned | Android / server / robot bodies |
 
@@ -647,6 +651,70 @@ Persisted files in `~/.jarvis_brain/` now also include:
 ```text
 affective_state_v4.json
 monologue_state_v4.json
+```
+
+### V5 world model + mature self-model details
+
+V5 upgrades Jarvis from a reactive assistant into a runtime that keeps a grounded model of itself and its environment.
+
+Main files:
+
+```text
+modules/tier1_essential/self_model/self_model_module.py
+modules/tier3_reasoning/world_model/world_model_module.py
+modules/tier3_reasoning/llm/llm_module.py
+```
+
+Self-model now tracks:
+
+```text
+identity, role, purpose, operating principles, real limits,
+capability inventory, active interfaces, confidence, reliability,
+autonomy level, cognitive maturity, recent successes/failures
+```
+
+World-model now tracks:
+
+```text
+environment state, active projects, project stages, open loops,
+user intent trends, recurring patterns, causal beliefs, timeline
+```
+
+The LLM prompt now receives V5 context:
+
+```text
+user_utterance
+  → memory retrieval
+  → cached self_model_updated + world_context
+  → LLM prompt with memory + affect + monologue + self/world model
+  → response_generated
+```
+
+New chat inspection commands:
+
+```bash
+python main.py --chat
+/self
+/world
+```
+
+Important V5 settings in `.env`:
+
+```env
+SELF_MODEL_V5_ENABLED=true
+SELF_MODEL_SNAPSHOT_INTERVAL=12.0
+SELF_MODEL_REFLECTION_INTERVAL=45.0
+WORLD_MODEL_V5_ENABLED=true
+WORLD_MODEL_SNAPSHOT_INTERVAL=10.0
+WORLD_MODEL_MAX_TIMELINE_ITEMS=80
+WORLD_MODEL_MAX_OPEN_LOOPS=25
+```
+
+Persisted files in `~/.jarvis_brain/` now also include:
+
+```text
+self_model_v5.json
+world_model_v5.json
 ```
 
 ---

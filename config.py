@@ -155,6 +155,23 @@ class ScreenConfig:
 
 
 @dataclass
+class SelfModelConfig:
+    """V5 mature self-model settings."""
+    enabled: bool = field(default_factory=lambda: os.environ.get("SELF_MODEL_V5_ENABLED", "true").lower() == "true")
+    self_snapshot_interval: float = field(default_factory=lambda: float(os.environ.get("SELF_MODEL_SNAPSHOT_INTERVAL", "12.0")))
+    self_reflection_interval: float = field(default_factory=lambda: float(os.environ.get("SELF_MODEL_REFLECTION_INTERVAL", "45.0")))
+
+
+@dataclass
+class WorldModelConfig:
+    """V5 world-model settings."""
+    enabled: bool = field(default_factory=lambda: os.environ.get("WORLD_MODEL_V5_ENABLED", "true").lower() == "true")
+    world_snapshot_interval: float = field(default_factory=lambda: float(os.environ.get("WORLD_MODEL_SNAPSHOT_INTERVAL", "10.0")))
+    max_timeline_items: int = field(default_factory=lambda: int(os.environ.get("WORLD_MODEL_MAX_TIMELINE_ITEMS", "80")))
+    max_open_loops: int = field(default_factory=lambda: int(os.environ.get("WORLD_MODEL_MAX_OPEN_LOOPS", "25")))
+
+
+@dataclass
 class EmotionConfig:
     """V4 affective state settings.
 
@@ -215,6 +232,12 @@ class KernelConfig:
     # ------------------------------------------------------------------
     emotion: EmotionConfig = field(default_factory=EmotionConfig)
     monologue: MonologueConfig = field(default_factory=MonologueConfig)
+
+    # ------------------------------------------------------------------
+    # V5 self/world model
+    # ------------------------------------------------------------------
+    self_model: SelfModelConfig = field(default_factory=SelfModelConfig)
+    world_model: WorldModelConfig = field(default_factory=WorldModelConfig)
 
     # ------------------------------------------------------------------
     # Voice interface

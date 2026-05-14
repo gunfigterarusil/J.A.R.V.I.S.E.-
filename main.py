@@ -104,7 +104,7 @@ async def run_with_chat(kernel: Kernel) -> None:
     kernel.event_bus.emit = _capture_responses  # type: ignore[method-assign]
     kernel_task = asyncio.create_task(kernel.start())
 
-    print("Jarvis chat mode. Type /see to read the screen, /exit to stop.\n")
+    print("Jarvis chat mode. Type /see to read the screen, /self, /world, or /exit to stop.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -113,6 +113,32 @@ async def run_with_chat(kernel: Kernel) -> None:
                 continue
             if user_text.lower() in {"/exit", "/quit", "exit", "quit"}:
                 break
+
+            if user_text.lower() in {"/self", "/whoami", "/identity"}:
+                mod = kernel.modules.get("self_model")
+                if mod is None:
+                    print("Jarvis: self_model module is not loaded.\n")
+                else:
+                    snap = mod.to_dict()
+                    print("Jarvis self-model:")
+                    print(f"- identity: {snap.get('identity_name')} / {snap.get('role')}")
+                    print(f"- confidence: {snap.get('confidence')} reliability: {snap.get('reliability')} maturity: {snap.get('cognitive_maturity')}")
+                    print(f"- interfaces: {', '.join(map(str, snap.get('active_interfaces', [])))}")
+                    print(f"- capabilities: {', '.join(list((snap.get('capabilities') or {}).keys())[:12])}\n")
+                continue
+
+            if user_text.lower() in {"/world", "/context", "/projects"}:
+                mod = kernel.modules.get("world_model")
+                if mod is None:
+                    print("Jarvis: world_model module is not loaded.\n")
+                else:
+                    snap = mod.to_dict()
+                    print("Jarvis world-model:")
+                    print(f"- active projects: {', '.join(map(str, snap.get('active_projects', [])))}")
+                    print(f"- open loops: {snap.get('open_loop_count')} patterns: {snap.get('pattern_count')}")
+                    print(f"- top intents: {snap.get('top_intents')}")
+                    print(f"- environment: {snap.get('environment')}\n")
+                continue
 
             if user_text.lower() in {"/see", "/screen", "/read-screen", "/explain-screen"}:
                 request_id = f"cli_screen_{int(__import__('time').time())}"

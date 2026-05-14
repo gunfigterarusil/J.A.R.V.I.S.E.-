@@ -47,6 +47,8 @@ class LLMModule(CognitiveModule):
         self._affective_context: dict = {}
         self._style_hint: str = "calm-direct"
         self._monologue_context: dict = {}
+        self._world_context: dict = {}
+        self._self_reflection: str = ""
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -67,6 +69,10 @@ class LLMModule(CognitiveModule):
                 "response_style_hint",
                 "monologue_state",
                 "internal_monologue",
+                "world_context",
+                "world_model_updated",
+                "self_reflection",
+                "capability_model_updated",
             ],
         )
 
@@ -97,6 +103,13 @@ class LLMModule(CognitiveModule):
         elif et == "internal_monologue":
             latest = event.data if isinstance(event.data, dict) else {"text": str(event.data)}
             self._monologue_context["latest"] = latest
+        elif et in {"world_context", "world_model_updated"}:
+            self._world_context = dict(event.data or {})
+        elif et == "self_reflection":
+            self._self_reflection = str((event.data or {}).get("text", ""))[:700]
+        elif et == "capability_model_updated":
+            if self._self_context is not None:
+                self._self_context["capability_update"] = event.data or {}
 
     async def _handle_user_utterance(self, event: Event) -> None:
         text = str(event.data.get("text", "") or "").strip()
@@ -182,6 +195,16 @@ class LLMModule(CognitiveModule):
         task_type = task_map.get(mode, TaskType.SIMPLE_CHAT)
 
         user_text = turn["text"]
+        # Ask V5 context modules for fresh snapshots. We also use the last cached snapshots immediately.
+        self.kernel.event_bus.emit(
+            Event(type="self_model_request", data={"reason": "dialogue_prompt", "request_id": turn["turn_id"]}, source_module=self.module_id),
+            Priority.BACKGROUND,
+        )
+        self.kernel.event_bus.emit(
+            Event(type="world_model_request", data={"reason": "dialogue_prompt", "request_id": turn["turn_id"]}, source_module=self.module_id),
+            Priority.BACKGROUND,
+        )
+
         system = self._build_system_prompt()
         prompt = self._build_dialogue_prompt(user_text, memory_data)
 
@@ -243,9 +266,14 @@ class LLMModule(CognitiveModule):
         role = self._self_context.get("role", "personal cognitive assistant")
         style = self._self_context.get("communication_style", "direct, useful, and precise")
         affect_style = self._style_hint or "calm-direct"
+        limits = self._self_context.get("known_limitations") or self._self_context.get("hard_limits") or []
+        principles = self._self_context.get("operating_principles") or []
+        limits_text = "; ".join(map(str, limits[:4])) if isinstance(limits, list) else str(limits)[:400]
+        principles_text = "; ".join(map(str, principles[:4])) if isinstance(principles, list) else str(principles)[:400]
         return (
             f"You are {name}, a {role}. Communication style: {style}. Current adaptive style: {affect_style}. "
             "You are not a stateless chatbot: you are the language/reasoning cortex inside a persistent modular brain. "
+            f"Operating principles: {principles_text}. Real limitations: {limits_text}. "
             "Use retrieved memory when it is relevant, but do not invent memories. "
             "Answer in the same language as the user unless they ask otherwise. "
             "Use the affective state only to tune tone and prioritization; do not pretend to have human feelings. "
@@ -268,6 +296,14 @@ class LLMModule(CognitiveModule):
         if monologue:
             sections.append("Internal monologue context:\n" + monologue)
 
+        self_model = self._format_self_context()
+        if self_model:
+            sections.append("V5 self-model context:\n" + self_model)
+
+        world = self._format_world_context()
+        if world:
+            sections.append("V5 world model context:\n" + world)
+
         wm = self._format_working_memory(memory_data.get("wm_snapshot") or self._wm_context)
         if wm:
             sections.append("Working memory:\n" + wm)
@@ -282,12 +318,69 @@ class LLMModule(CognitiveModule):
 
         sections.append("Current user message:\n" + user_text)
         sections.append(
-            "Respond as Jarvis. Use memory and internal monologue only when they help. "
+            "Respond as Jarvis. Use memory, self-model, world model and internal monologue only when they help. "
+            "Treat the world model as a fallible working model, not absolute truth. "
             "Adapt tone to the style context, but keep the answer useful and not melodramatic. "
             "Do not mention internal event names unless the user asks about the architecture."
         )
         return "\n\n---\n\n".join(sections)
 
+
+    def _format_self_context(self) -> str:
+        if not self._self_context and not self._self_reflection:
+            return ""
+        lines = []
+        ctx = self._self_context or {}
+        for key in ("identity_name", "role", "confidence", "reliability", "autonomy_level", "cognitive_maturity"):
+            if key in ctx:
+                lines.append(f"{key}: {ctx.get(key)}")
+        caps = ctx.get("capabilities") or {}
+        if isinstance(caps, dict) and caps:
+            active = [k for k, v in caps.items() if isinstance(v, dict) and v.get("enabled", True)]
+            lines.append("active capabilities: " + ", ".join(active[:10]))
+        interfaces = ctx.get("active_interfaces") or []
+        if interfaces:
+            lines.append("active interfaces: " + ", ".join(map(str, interfaces[:8])))
+        limits = ctx.get("known_limitations") or []
+        if limits:
+            lines.append("limitations: " + "; ".join(str(x)[:160] for x in limits[:4]))
+        if self._self_reflection:
+            lines.append("latest self-reflection: " + self._self_reflection)
+        return "\n".join(f"- {line}" for line in lines)
+
+    def _format_world_context(self) -> str:
+        if not self._world_context:
+            return ""
+        lines = []
+        env = self._world_context.get("environment") or {}
+        if isinstance(env, dict):
+            screen = env.get("screen") or {}
+            voice = env.get("voice") or {}
+            llm = env.get("llm") or {}
+            if llm:
+                lines.append(f"llm: available={llm.get('available')} mode={llm.get('last_mode', '')}")
+            if screen:
+                summary = str(screen.get("last_summary") or "")[:240]
+                lines.append(f"screen: available={screen.get('available')} summary={summary}")
+            if voice:
+                lines.append(f"voice: available={voice.get('available')} last_error={str(voice.get('last_error') or '')[:120]}")
+        projects = self._world_context.get("active_projects") or {}
+        if isinstance(projects, dict) and projects:
+            for key, project in list(projects.items())[:4]:
+                if isinstance(project, dict):
+                    loops = project.get("open_loops") or []
+                    loop_text = "; ".join(str(x)[:140] for x in loops[-3:])
+                    lines.append(f"project {key}: stage={project.get('stage')} status={project.get('status')} open={loop_text}")
+        intents = self._world_context.get("user_intents") or {}
+        if intents:
+            lines.append("user intent trends: " + ", ".join(f"{k}:{v}" for k, v in list(intents.items())[:6]))
+        open_loops = self._world_context.get("open_loops") or []
+        if open_loops:
+            lines.append("open loops: " + "; ".join(str((x or {}).get("text", x))[:140] for x in open_loops[-4:]))
+        beliefs = self._world_context.get("causal_beliefs") or []
+        if beliefs:
+            lines.append("causal beliefs: " + "; ".join(f"{b.get('cause')} -> {b.get('effect')} ({b.get('confidence')})" for b in beliefs[:4] if isinstance(b, dict)))
+        return "\n".join(f"- {line}" for line in lines if line)
 
     def _format_affective_context(self) -> str:
         if not self._affective_context:
@@ -467,6 +560,8 @@ class LLMModule(CognitiveModule):
         base["last_response_preview"] = self._last_response[:120]
         base["style_hint"] = self._style_hint
         base["affect"] = {k: self._affective_context.get(k) for k in ("emotion", "mood", "response_style", "curiosity", "frustration", "confidence")}
+        base["world_context_cached"] = bool(self._world_context)
+        base["self_context_cached"] = bool(self._self_context)
         return base
 
 
