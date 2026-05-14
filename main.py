@@ -7,6 +7,7 @@ Usage:
     python main.py --web            # kernel + web dashboard on port 8000
     python main.py --voice          # kernel + microphone STT + Piper/pyttsx3 TTS
     python main.py --chat           # terminal dialogue loop
+    python main.py --desktop        # native desktop app (Tkinter)
     python main.py --web --port 9000
 """
 from __future__ import annotations
@@ -379,13 +380,14 @@ def main() -> None:
     parser.add_argument("--web", action="store_true", help="Start web dashboard")
     parser.add_argument("--voice", action="store_true", help="Start voice mode: microphone STT + Piper/pyttsx3 TTS")
     parser.add_argument("--chat", action="store_true", help="Start terminal dialogue mode")
+    parser.add_argument("--desktop", action="store_true", help="Start native desktop interface instead of browser UI")
     parser.add_argument("--host", default=cfg.web_host, help="Web UI host")
     parser.add_argument("--port", type=int, default=cfg.web_port, help="Web UI port")
     args = parser.parse_args()
 
-    selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat) if enabled)
+    selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat, args.desktop) if enabled)
     if selected_modes > 1:
-        logger.error("--web, --voice and --chat are separate modes for now. Start one at a time.")
+        logger.error("--web, --voice, --chat and --desktop are separate modes for now. Start one at a time.")
         sys.exit(2)
 
     if args.web:
@@ -410,6 +412,9 @@ def main() -> None:
         cfg.voice.enabled = True
         kernel = build_kernel(cfg)
         asyncio.run(run_with_voice(kernel))
+    elif args.desktop:
+        from interfaces.desktop.desktop_app import run_desktop_app
+        run_desktop_app(cfg)
     elif args.chat:
         kernel = build_kernel(cfg)
         asyncio.run(run_with_chat(kernel))

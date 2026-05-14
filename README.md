@@ -188,6 +188,19 @@ Use this mode to test Jarvis before enabling voice or PC automation. You can als
 /write notes.txt :: hello
 ```
 
+V8 also adds a natural-language bridge to V7 actions, so chat/desktop/voice can understand simple commands like:
+
+```text
+покажи файли .
+прочитай файл README.md
+знайди error в .
+створи папку notes
+запиши в notes/test.txt :: hello
+запусти python --version
+```
+
+These commands still pass through the same safety firewall and sandbox. Shell commands require `ACTION_ALLOW_SHELL=true` and safety L5.
+
 ### 4. Run with voice
 
 ```bash
@@ -196,7 +209,25 @@ python main.py --voice
 
 Voice mode uses microphone STT through `faster-whisper`, sends recognized speech into the same V1 dialogue/memory loop as `--chat`, then speaks `response_generated` with Piper TTS. If Piper is not configured, it falls back to `pyttsx3` when available. The voice loop waits for the answer/TTS completion before listening again to avoid transcribing its own speaker output.
 
-### 5. Run with web dashboard
+
+### 5. Run native desktop interface
+
+```bash
+python main.py --desktop
+```
+
+This starts a standalone Tkinter app, not a browser dashboard. It includes chat, event stream, screen reading, sleep/consolidation controls, action status, safety level buttons, and quick natural-language action presets.
+
+Build it into a desktop application:
+
+```bash
+pip install pyinstaller
+python scripts/build_desktop_app.py
+```
+
+Output appears in `dist/JAV/`. See `V8_DESKTOP_AUTONOMY_MVP.md`.
+
+### 6. Run with web dashboard
 
 ```bash
 python main.py --web
@@ -434,6 +465,7 @@ C:\AI\JAV\
 │   ├── tier2_perception/            # screen · vision · audio (stubs)
 │   │
 │   ├── tier3_reasoning/
+│   │   ├── action_intent/           # V8 natural language → safe V7 actions
 │   │   ├── llm/                     # LLM module (uses LLMRouter)
 │   │   ├── monologue/               # Internal self-narration
 │   │   ├── planner/                 # Goal → action steps (LLM-driven)
@@ -454,6 +486,9 @@ C:\AI\JAV\
 │       └── self_learning/           # Heuristics from success/failure
 │
 └── interfaces/
+    ├── desktop/
+    │   └── desktop_app.py           # V8 native Tkinter desktop app
+    ├── voice/                       # STT/TTS voice interface
     └── web_ui/
         ├── app.py                   # FastAPI + WebSocket dashboard
         └── templates/index.html
@@ -497,7 +532,38 @@ Everything is stored in `~/.jarvis_brain/`:
 | V5 | ✅ MVP Done | World model + mature self-model |
 | V6 | ✅ MVP Done | Sleep/dream replay + memory consolidation |
 | V7 | ✅ MVP Done | PC automation via tier4_actions (safety-gated) |
-| V8 | Next | Android / server / robot bodies |
+| V8 | ✅ MVP Done | Native desktop app + conversational safe actions |
+| V9 | Next | Android / server / robot bodies |
+
+
+### V8 desktop + conversational action MVP details
+
+V8 adds two practical upgrades:
+
+1. **Native desktop interface** through `python main.py --desktop`. This is a Tkinter app, not the browser dashboard.
+2. **Natural action intent layer** through `modules/tier3_reasoning/action_intent/action_intent_module.py`. It converts simple user phrases into V7 `action_request` events.
+
+Supported MVP examples:
+
+```text
+покажи файли .
+прочитай файл README.md
+знайди error в .
+створи папку notes
+запиши в notes/test.txt :: hello
+запусти python --version
+```
+
+Important: voice/chat/desktop do **not** bypass safety. Every action still goes through the ActionFirewall, Sandbox, RiskEngine, and PermissionManager.
+
+Build app:
+
+```bash
+pip install pyinstaller
+python scripts/build_desktop_app.py
+```
+
+Repair/fix requests are recognized, but full autonomous code repair is intentionally not unrestricted yet. The next deeper upgrade would be a Code Repair Agent: inspect → test → propose patch → approve → write → verify.
 
 
 ### V7 safe PC automation MVP details

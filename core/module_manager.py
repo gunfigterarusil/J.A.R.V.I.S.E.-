@@ -45,7 +45,7 @@ class ModuleManager:
             for pyfile in p.rglob("*_module.py"):
                 if self._has_factory(str(pyfile)):
                     found.append(str(pyfile))
-        return found
+        return sorted(found)
 
     def _has_factory(self, path: str) -> bool:
         try:

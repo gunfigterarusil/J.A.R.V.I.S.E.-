@@ -129,6 +129,9 @@ class LLMModule(CognitiveModule):
         text = str(event.data.get("text", "") or "").strip()
         if not text:
             return
+        if event.data.get("_skip_llm"):
+            logger.info("[LLM] user_utterance handled by %s; skipping generic LLM reply", event.data.get("handled_by", "another module"))
+            return
 
         self._turn_counter += 1
         turn_id = f"turn_{int(time.time())}_{self._turn_counter}"

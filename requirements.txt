@@ -18,3 +18,6 @@ pyttsx3
 mss
 Pillow
 pytesseract
+
+# Optional: build native desktop executable
+pyinstaller
