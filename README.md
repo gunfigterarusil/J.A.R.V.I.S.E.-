@@ -621,3 +621,34 @@ CHANGELOG.md
 ```
 
 Окремі `V*_*.md` patch-файли прибрані з кореня, щоб проєкт був чистішим.
+
+## Model connection troubleshooting
+
+Use these commands after configuring Ollama or API providers:
+
+```bash
+python main.py --doctor
+python main.py --chat
+```
+
+Inside chat:
+
+```text
+/models
+/model-test fast
+/model-test code
+```
+
+If Ollama is running but a role is unavailable, JAV now shows the exact missing model.
+Example fix:
+
+```bash
+ollama serve
+ollama pull qwen2.5:7b
+ollama pull llama3.1:8b
+ollama pull qwen2.5-coder:7b
+```
+
+In Desktop UI, open **Models** → **Setup Wizard** or **Run Health Check**.
+Model/provider/API changes are saved to `.env`; model-router settings are now reloaded live in desktop mode, but a full restart is still recommended after changing paths, voice, OCR, or service settings.
+

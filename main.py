@@ -249,7 +249,7 @@ async def run_with_chat(kernel: Kernel) -> None:
             if lower in {"/help", "/commands"}:
                 print("Jarvis commands:")
                 print("  /status, /modules, /events, /runtime, /doctor (external), /exit")
-                print("  /models, /model-health")
+                print("  /models, /model-health, /model-test [role]")
                 print("  /memory, /recall <query>")
                 print("  /system, /proactive, /daily-summary")
                 print("  /see, /vision, /gui")
@@ -308,8 +308,22 @@ async def run_with_chat(kernel: Kernel) -> None:
                     print(f"Jarvis model router V10 profile: {status.get('profile')}")
                     for role in ["fast", "reason", "code", "critic", "vision", "embedding", "action"]:
                         info = (status.get("roles") or {}).get(role) or {}
-                        print(f"- {role}: {info.get('provider', 'not configured')} available={info.get('available', False)}")
+                        detail = info.get("detail") or ""
+                        suffix = f" — {detail}" if detail else ""
+                        print(f"- {role}: {info.get('provider', 'not configured')}/{info.get('model', '')} available={info.get('available', False)}{suffix}")
                     print(f"available providers: {', '.join(status.get('available') or [])}\n")
+                continue
+
+            if lower.startswith("/model-test"):
+                router = getattr(kernel, "llm_router", None)
+                role = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else "fast"
+                if router is None or not hasattr(router, "test_role"):
+                    print("Jarvis: model router test is not available.\n")
+                else:
+                    print(f"Jarvis: testing model role '{role}'...", flush=True)
+                    result = await router.test_role(role)
+                    ok = "OK" if result.get("ok") else "FAIL"
+                    print(f"Jarvis model test [{ok}] role={result.get('role')} provider={result.get('provider')}\n{result.get('text') or result.get('error') or ''}\n")
                 continue
 
             if lower in {"/runtime", "/runtime-status", "/health", "/service-status"}:

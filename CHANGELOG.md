@@ -207,3 +207,16 @@
 - Restored explicit chat commands: `/help`, `/status`, `/modules`, `/events`.
 - Cleaned release archive from `.env`, runtime `data/`, logs and caches.
 
+## V15.6 — Model Connection + Interface Bugfix Patch
+
+- Fixed Ollama role availability checks: JAV now verifies that the configured model is actually pulled, not only that Ollama is running.
+- Added clear model diagnostics for missing Ollama models, for example: `ollama pull qwen2.5:7b`.
+- Added `/model-test [role]` in chat for live model role testing.
+- Improved `/models` output with provider/model/detail fields.
+- Fixed model status panel to show the configured model name and connection details instead of blank model cells.
+- Fixed Model Setup Wizard profile selection refresh bug.
+- Settings Center and Model Setup Wizard now keep their windows inside smaller screens.
+- Settings Center writes `.env` beside the movable app/exe in frozen builds.
+- Desktop now reloads the model router live after saving model/provider/API settings.
+- Doctor now includes model-router diagnostics and per-role status.
+

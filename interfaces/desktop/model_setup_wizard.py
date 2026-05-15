@@ -351,7 +351,7 @@ class ProfileStep(_WizardStep):
             bg=_BG_CARD, fg=_FG, selectcolor=_BG_CARD,
             activebackground=_BG_CARD, activeforeground=_FG,
             font=("Segoe UI", 11, "bold"),
-            command=lambda: self._refresh_cards(parent.master),
+            command=lambda p=parent: self._refresh_cards(p),
         )
         rb.pack(anchor="w")
 

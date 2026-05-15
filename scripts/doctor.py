@@ -245,6 +245,25 @@ def main() -> int:
     check("Ollama executable", shutil.which("ollama") is not None,
           shutil.which("ollama") or "optional; needed for local models")
 
+    print("\nModel router:")
+    try:
+        from config import KernelConfig
+        from core.llm_router import LLMRouter
+        cfg = KernelConfig().llm
+        router = LLMRouter(cfg)
+        status = router.status(refresh=True)
+        check("Model profile", True, str(status.get("profile")))
+        roles = status.get("roles") or {}
+        for role in ["fast", "reason", "code", "critic", "vision", "embedding", "action"]:
+            info = roles.get(role) or {}
+            detail = f"{info.get('provider', 'n/a')}/{info.get('model', '')}"
+            if info.get("detail"):
+                detail += f" — {info.get('detail')}"
+            check(f"Model role {role}", bool(info.get("available")), detail)
+        check("At least one real model provider", any(p != "null" for p in (status.get("available") or [])), ", ".join(status.get("available") or []))
+    except Exception as exc:
+        ok_all &= check("model router diagnostics", False, repr(exc))
+
     print("\nSmoke tests:")
     try:
         result = subprocess.run(

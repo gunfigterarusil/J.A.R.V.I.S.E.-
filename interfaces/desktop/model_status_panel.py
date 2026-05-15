@@ -131,8 +131,9 @@ class ModelStatusPanel(ttk.Frame):
             rows.append({
                 "role": role,
                 "provider": info.get("provider", "—"),
-                "model": info.get("model", "—"),
+                "model": info.get("model") or info.get("provider_name", "—"),
                 "available": bool(info.get("available", False)),
+                "detail": info.get("detail", ""),
             })
 
         available_list = status.get("available") or []
@@ -173,13 +174,17 @@ class ModelStatusPanel(ttk.Frame):
                 dot = "○"
                 fg = _FG_MUTED
 
+            model_text = str(row.get("model", "—"))
+            detail = str(row.get("detail", ""))
+            if detail and avail is False:
+                model_text = f"{model_text}  ·  {detail[:80]}"
             cells = [
                 ttk.Label(self._table_frame, text=row["role"],
                           style="Card.TLabel", font=("Segoe UI", 9)),
                 ttk.Label(self._table_frame, text=row["provider"],
                           style="Muted.Card.TLabel", font=("Segoe UI", 9)),
-                ttk.Label(self._table_frame, text=row["model"],
-                          style="Card.TLabel", font=("Segoe UI", 9)),
+                ttk.Label(self._table_frame, text=model_text,
+                          style="Card.TLabel", font=("Segoe UI", 9), wraplength=360),
                 tk.Label(self._table_frame, text=dot, fg=fg,
                          bg=_BG_CARD, font=("Segoe UI", 11)),
             ]

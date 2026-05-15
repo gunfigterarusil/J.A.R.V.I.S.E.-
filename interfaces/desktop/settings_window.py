@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from tkinter import ttk, messagebox, filedialog
 import tkinter as tk
 from typing import Callable, Dict, List
@@ -280,7 +281,8 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    # In source mode this is the project folder; in PyInstaller it is the movable app folder.
+    return Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
 
 
 def load_env(path: Path) -> Dict[str, str]:
@@ -326,7 +328,10 @@ class SettingsWindow(tk.Toplevel):
     def __init__(self, master: tk.Tk, on_saved: Callable[[Dict[str, str]], None] | None = None) -> None:
         super().__init__(master)
         self.title("JAV Settings Center")
-        self.geometry("980x720")
+        # Keep the settings window inside smaller screens.
+        sw = max(900, min(1120, self.winfo_screenwidth() - 80))
+        sh = max(620, min(780, self.winfo_screenheight() - 80))
+        self.geometry(f"{sw}x{sh}")
         self.minsize(860, 560)
         self.on_saved = on_saved
         self.env_path = _project_root() / ".env"

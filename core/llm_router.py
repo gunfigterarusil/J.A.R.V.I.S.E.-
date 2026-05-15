@@ -117,6 +117,22 @@ class NullProvider(LLMProvider):
         ]
 
 
+
+def _norm_provider_type(value: str) -> str:
+    """Normalize provider names accepted by UI/env."""
+    v = (value or "").strip().lower().replace("-", "_")
+    aliases = {
+        "openai_compatible": "openai",
+        "openai_api": "openai",
+        "openai_chat": "openai",
+        "google": "gemini",
+        "google_gemini": "gemini",
+        "claude": "anthropic",
+        "llama_cpp": "llamacpp",
+        "llama.cpp": "llamacpp",
+    }
+    return aliases.get(v, v)
+
 # ---------------------------------------------------------------------------
 # OllamaProvider — local Ollama server (no API key required)
 # ---------------------------------------------------------------------------
@@ -129,6 +145,8 @@ class OllamaProvider(LLMProvider):
         self._model = model
         self._timeout = timeout
         self._available: Optional[bool] = None
+        self.last_error: str = ""
+        self._available_models: List[str] = []
 
     @property
     def name(self) -> str:
@@ -145,11 +163,36 @@ class OllamaProvider(LLMProvider):
             import urllib.request
             req = urllib.request.Request(f"{self._host}/api/tags", method="GET")
             with urllib.request.urlopen(req, timeout=2) as r:
-                return r.status == 200
-        except Exception:
+                if r.status != 200:
+                    self.last_error = f"Ollama returned HTTP {r.status}"
+                    return False
+                data = json.loads(r.read().decode("utf-8", errors="replace"))
+            models = data.get("models", []) if isinstance(data, dict) else []
+            names = []
+            for item in models:
+                name = str(item.get("name") or item.get("model") or "").strip()
+                if name:
+                    names.append(name)
+            self._available_models = names
+            if not self._model:
+                self.last_error = ""
+                return True
+            # Ollama tags may include qwen2.5:7b or qwen2.5; accept exact or prefix before ':'
+            wanted = self._model.strip()
+            if wanted in names or any(n.split(":", 1)[0] == wanted for n in names):
+                self.last_error = ""
+                return True
+            self.last_error = f"Ollama is running, but model '{wanted}' is not pulled. Run: ollama pull {wanted}"
+            return False
+        except Exception as exc:
+            self.last_error = f"Ollama not reachable at {self._host}: {exc}"
             return False
 
     async def generate(self, prompt: str, system: str = "", **kwargs) -> str:
+        # Recheck just before generation. This turns the common "model not found" /
+        # "Ollama is not running" case into a clear message instead of a traceback.
+        if not self.is_available:
+            return f"[Ollama unavailable: {self.last_error or 'provider is not available'}]"
         try:
             import urllib.request, urllib.error
             payload = json.dumps({
@@ -172,6 +215,8 @@ class OllamaProvider(LLMProvider):
             result = await loop.run_in_executor(None, _call)
             return result.get("response", "")
         except Exception as exc:
+            self._available = None
+            self.last_error = str(exc)
             logger.error(f"[Ollama] generate failed: {exc}")
             return f"[Ollama error: {exc}]"
 
@@ -580,7 +625,7 @@ class LLMRouter:
         self.register_provider("null", self._null, role="fallback", provider_type="null", model="null")
 
     def _make_role_provider(self, role: str, spec: Dict[str, str], config: Any) -> Optional[str]:
-        provider_type = str(spec.get("provider", "") or "").strip().lower()
+        provider_type = _norm_provider_type(str(spec.get("provider", "") or ""))
         model = str(spec.get("model", "") or "").strip()
         if not provider_type or provider_type == "null":
             return None
@@ -698,10 +743,18 @@ class LLMRouter:
         roles = {}
         for role, key in self._role_provider_keys.items():
             provider = self._providers.get(key)
+            meta = dict(self._provider_meta.get(key, {}))
+            try:
+                available = bool(provider.is_available) if provider else False
+            except Exception:
+                available = False
             roles[role] = {
                 "provider_key": key,
-                "provider": provider.name if provider else key,
-                "available": bool(provider.is_available) if provider else False,
+                "provider": meta.get("provider_type") or (provider.name if provider else key),
+                "provider_name": provider.name if provider else key,
+                "model": meta.get("model") or (provider.name if provider else ""),
+                "available": available,
+                "detail": getattr(provider, "last_error", "") if provider else "provider not created",
             }
         routes = {task.value: [p for p in prefs] for task, prefs in self._routing.items()}
         return {
@@ -712,6 +765,24 @@ class LLMRouter:
             "routes": routes,
             "available": self.available_providers(),
         }
+
+    async def test_role(self, role: str, prompt: str = "Reply with exactly: OK") -> Dict[str, Any]:
+        """Run a tiny generation test for a model role and return structured diagnostics."""
+        role = (role or "fast").strip().lower()
+        task = next((t for t, r in _TASK_ROLE.items() if r == role), TaskType.SIMPLE_CHAT)
+        provider = self.route(task)
+        try:
+            available = bool(provider.is_available)
+        except Exception:
+            available = False
+        if not available or provider.name == "null":
+            return {"role": role, "ok": False, "provider": provider.name, "text": "", "error": getattr(provider, "last_error", "No available provider for this role")}
+        try:
+            text = await provider.generate(prompt, system="You are a connectivity test. Return a very short answer.", max_tokens=32, temperature=0)
+            ok = bool(text.strip()) and "error" not in text.lower()
+            return {"role": role, "ok": ok, "provider": provider.name, "text": text.strip()[:400], "error": "" if ok else text.strip()[:400]}
+        except Exception as exc:
+            return {"role": role, "ok": False, "provider": provider.name, "text": "", "error": str(exc)}
 
     async def generate(self, prompt: str,
                        task_type: TaskType = TaskType.SIMPLE_CHAT,

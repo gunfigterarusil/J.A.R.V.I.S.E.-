@@ -434,6 +434,7 @@ class DesktopApp:
         from interfaces.desktop.model_setup_wizard import ModelSetupWizard
 
         def on_complete(cfg: dict) -> None:
+            self._settings_saved(cfg)
             if hasattr(self, "_model_panel"):
                 self._model_panel.refresh(kernel=getattr(self, "kernel", None))
 
@@ -984,6 +985,9 @@ class DesktopApp:
 
     def _settings_saved(self, updates: Dict[str, str]) -> None:
         try:
+            # Make saved settings visible immediately to helpers that read os.environ.
+            for key, value in (updates or {}).items():
+                os.environ[str(key)] = str(value)
             if self.kernel is None:
                 self._append("system", "Settings saved. Kernel is not ready yet; restart JAV or wait for startup to apply live settings.")
                 return
@@ -995,7 +999,21 @@ class DesktopApp:
                     actions.allow_shell = updates["ACTION_ALLOW_SHELL"].lower() == "true"
                 if "ACTIONS_V7_ENABLED" in updates:
                     actions.enabled = updates["ACTIONS_V7_ENABLED"].lower() == "true"
-            self._append("system", "Settings saved. Restart JAV for provider/path/voice/OCR/UI settings to fully reload. Some action settings were applied live.")
+            # Rebuild model router live when model/provider/API settings changed.
+            if any(str(k).startswith(("MODEL_", "OLLAMA_", "OPENAI_", "GEMINI_", "ANTHROPIC_", "LLAMACPP_")) for k in updates):
+                try:
+                    from config import LLMRouterConfig
+                    from core.llm_router import LLMRouter
+                    self.kernel.config.llm = LLMRouterConfig()
+                    self.kernel.llm_router = LLMRouter(self.kernel.config.llm)
+                    self._cached_model_status = self.kernel.llm_router.status(refresh=True)
+                    if hasattr(self, "_model_panel"):
+                        self._model_panel._update_from_status(self._cached_model_status)
+                    self._append("system", "Model settings saved and model router reloaded live. Run Models → Health Check to verify.")
+                    return
+                except Exception as exc:
+                    self._append("system", f"Settings saved, but live model-router reload failed: {exc}")
+            self._append("system", "Settings saved. Some action/model settings were applied live; restart JAV for path/voice/OCR/UI settings to fully reload.")
         except Exception as exc:
             self._append("system", f"Settings saved, but live apply failed: {exc}")
 
