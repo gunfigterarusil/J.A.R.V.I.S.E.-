@@ -1,5 +1,5 @@
 #define MyAppName "JAV"
-#define MyAppVersion "15.6"
+#define MyAppVersion "15.9"
 #define MyAppPublisher "JAV Project"
 #define MyAppExeName "JAV.exe"
 #define MyConsoleExeName "JAV-Console.exe"
@@ -43,6 +43,8 @@ Name: "{app}\data\screenshots"; Tasks: portabledata
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\JAV Doctor"; Filename: "{app}\{#MyConsoleExeName}"; Parameters: "--doctor"; WorkingDir: "{app}"
 Name: "{group}\JAV Chat"; Filename: "{app}\{#MyConsoleExeName}"; Parameters: "--chat"; WorkingDir: "{app}"
+Name: "{group}\JAV Setup Wizard"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup"; WorkingDir: "{app}"
+Name: "{group}\Reset JAV Setup"; Filename: "{app}\{#MyConsoleExeName}"; Parameters: "--reset-setup"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: startup
 

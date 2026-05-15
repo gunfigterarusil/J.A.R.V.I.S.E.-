@@ -174,6 +174,41 @@ def run_checks(root: Optional[Path] = None) -> List[DoctorCheck]:
             category="required",
         ))
 
+    # ── First launch / portable setup state ──────────────────────────────────
+    try:
+        from config import KernelConfig
+        cfg = KernelConfig()
+        env_exists = (root / ".env").exists()
+        data_dir = Path(cfg.persistence_dir).expanduser()
+        if not data_dir.is_absolute():
+            data_dir = root / data_dir
+        setup_done = (root / ".jav_setup_complete").exists() or (data_dir / ".jav_setup_complete").exists()
+        results.append(DoctorCheck(
+            name="First-launch setup state",
+            passed=True,
+            detail=("complete" if setup_done else "not completed; run python main.py --setup"),
+            category="optional",
+        ))
+        results.append(DoctorCheck(
+            name=".env configuration file",
+            passed=env_exists,
+            detail=str(root / ".env") if env_exists else "missing; wizard can create it",
+            category="optional",
+        ))
+        results.append(DoctorCheck(
+            name="Memory/data directory",
+            passed=data_dir.exists(),
+            detail=str(data_dir),
+            category="optional",
+        ))
+    except Exception as exc:
+        results.append(DoctorCheck(
+            name="First-launch setup state",
+            passed=False,
+            detail=repr(exc),
+            category="optional",
+        ))
+
     return results
 
 
@@ -261,6 +296,20 @@ def main() -> int:
           shutil.which("piper") or "optional; set PIPER_EXECUTABLE/PIPER_MODEL_PATH", severity="external")
     check("Ollama executable", shutil.which("ollama") is not None,
           shutil.which("ollama") or "optional; needed only for local Ollama models", severity="external")
+
+    print("\nSetup / portable state:")
+    try:
+        from config import KernelConfig
+        cfg = KernelConfig()
+        data_dir = Path(cfg.persistence_dir).expanduser()
+        if not data_dir.is_absolute():
+            data_dir = ROOT / data_dir
+        setup_done = (ROOT / ".jav_setup_complete").exists() or (data_dir / ".jav_setup_complete").exists()
+        check("First-launch wizard", True, "complete" if setup_done else "not completed; run: python main.py --setup", severity="info")
+        check(".env file", (ROOT / ".env").exists(), str(ROOT / ".env") if (ROOT / ".env").exists() else "missing; setup wizard can create it", severity="optional")
+        check("Memory/data directory", data_dir.exists(), str(data_dir), severity="optional")
+    except Exception as exc:
+        check("setup state", False, repr(exc), severity="optional")
 
     print("\nVoice setup:")
     try:

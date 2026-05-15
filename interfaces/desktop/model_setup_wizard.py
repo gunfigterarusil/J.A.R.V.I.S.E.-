@@ -1,617 +1,391 @@
-"""interfaces/desktop/model_setup_wizard.py — Model Setup Wizard (V16).
+"""interfaces/desktop/model_setup_wizard.py — V16 Model Setup Wizard 2.0.
 
-4-step modal wizard for configuring models without editing .env manually:
-  1. ProfileStep    — choose a preset profile (offline / balanced / power / code / voice)
-  2. CredentialsStep — enter API keys dynamically based on the chosen profile
-  3. TestStep        — lightweight provider connectivity check (background thread)
-  4. SummaryStep     — review env keys that will be written, then Finish
-
-Usage:
-    from interfaces.desktop.model_setup_wizard import ModelSetupWizard
-    ModelSetupWizard(root, on_complete=lambda cfg: ..., on_cancel=lambda: ...)
+A resizable, scrollable wizard for configuring JAV model roles without manually
+editing .env. It supports Offline / Low RAM / Hybrid / Cloud / Code / Voice
+profiles, Ollama discovery, role assignment, API-key configuration, and a final
+pull-command summary.
 """
 from __future__ import annotations
 
+import os
 import sys
-import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
-from typing import Callable, Dict, List, Optional, Tuple
+from tkinter import messagebox, ttk
+from typing import Callable, Dict, List, Tuple
 
-_APP_ROOT = (
-    Path(sys.executable).resolve().parent
-    if getattr(sys, "frozen", False)
-    else Path(__file__).resolve().parents[2]
+from scripts.model_setup import (
+    DEFAULT_PROFILE_MODELS,
+    ROLES,
+    list_ollama_models,
+    model_matches,
+    ollama_pull_commands,
 )
 
-# ── Color palette (GitHub Dark) ──────────────────────────────────────
+_APP_ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+
 _BG = "#0d1117"
-_BG_CARD = "#161b22"
-_BG_HEADER = "#161b22"
-_FG = "#e6edf3"
-_FG_MUTED = "#8b949e"
+_CARD = "#161b22"
+_CARD2 = "#1c2128"
+_TEXT = "#e6edf3"
+_MUTED = "#8b949e"
+_BLUE = "#1f6feb"
 _GREEN = "#3fb950"
 _RED = "#f85149"
 _ORANGE = "#f0883e"
-_BLUE = "#1f6feb"
 _BORDER = "#30363d"
 
+PROVIDER_CHOICES = ["ollama", "openai", "gemini", "anthropic", "llamacpp", "null"]
 
-# ────────────────────────────────────────────────────────────────────
-# .env writer (standalone, same logic as FirstLaunchWizard._write_env)
-# ────────────────────────────────────────────────────────────────────
-
-def _write_env(env_path: Path, config: Dict[str, str]) -> None:
-    existing_lines: List[str] = []
-    if env_path.exists():
-        existing_lines = env_path.read_text(encoding="utf-8").splitlines()
-
-    wizard_keys = set(config.keys())
-    new_lines: List[str] = []
-    for line in existing_lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            new_lines.append(line)
-            continue
-        key = stripped.split("=", 1)[0].strip()
-        if key not in wizard_keys:
-            new_lines.append(line)
-
-    if new_lines and new_lines[-1] != "":
-        new_lines.append("")
-    new_lines.append("# === JAV Model Wizard ===")
-    for key, value in sorted(config.items()):
-        new_lines.append(f"{key}={value}")
-
-    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+PROFILE_INFO = {
+    "offline": ("Offline", "All core roles use local Ollama models. Best privacy, no cloud tokens."),
+    "low_ram": ("Low RAM", "Smaller Ollama models for laptops / weak PCs."),
+    "hybrid": ("Hybrid", "Local fast/code/action roles + cloud reasoning/vision."),
+    "cloud": ("Cloud", "Use cloud APIs for most roles. Best quality if API keys are available."),
+    "code": ("Code Focus", "Coder models for repair/debugging-heavy workflows."),
+    "voice_companion": ("Voice Companion", "Lower latency local profile for voice-first usage."),
+    "custom": ("Custom", "Keep/edit your own role assignments manually."),
+}
 
 
-# ────────────────────────────────────────────────────────────────────
-# Profile definitions
-# ────────────────────────────────────────────────────────────────────
-
-_PROFILES: List[Dict] = [
-    {
-        "value": "offline",
-        "label": "Offline / Local",
-        "description": "All models run locally via Ollama. No internet required.",
-        "requirements": "Requires Ollama installed and running.",
-        "needs_ollama": True,
-        "needs_gemini": False,
-        "needs_openai": False,
-        "needs_anthropic": False,
-    },
-    {
-        "value": "balanced",
-        "label": "Balanced",
-        "description": "Local Ollama models for most tasks, Gemini for complex reasoning.",
-        "requirements": "Requires Ollama + Gemini API key.",
-        "needs_ollama": True,
-        "needs_gemini": True,
-        "needs_openai": False,
-        "needs_anthropic": False,
-    },
-    {
-        "value": "power",
-        "label": "Cloud Power",
-        "description": "Best quality — all roles use cloud APIs (OpenAI, Anthropic).",
-        "requirements": "Requires at least one API key (OpenAI or Anthropic).",
-        "needs_ollama": False,
-        "needs_gemini": False,
-        "needs_openai": True,
-        "needs_anthropic": True,
-    },
-    {
-        "value": "code",
-        "label": "Code Focus",
-        "description": "Local Ollama optimised for coding tasks (qwen2.5-coder).",
-        "requirements": "Requires Ollama installed and running.",
-        "needs_ollama": True,
-        "needs_gemini": False,
-        "needs_openai": False,
-        "needs_anthropic": False,
-    },
-    {
-        "value": "voice_companion",
-        "label": "Voice Companion",
-        "description": "Fast local models tuned for low-latency voice responses.",
-        "requirements": "Requires Ollama installed and running.",
-        "needs_ollama": True,
-        "needs_gemini": False,
-        "needs_openai": False,
-        "needs_anthropic": False,
-    },
-]
+def _env_path() -> Path:
+    return _APP_ROOT / ".env"
 
 
-# ────────────────────────────────────────────────────────────────────
-# Wizard
-# ────────────────────────────────────────────────────────────────────
+def _read_env() -> Dict[str, str]:
+    result: Dict[str, str] = {}
+    path = _env_path()
+    if path.exists():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            s = line.strip()
+            if not s or s.startswith("#") or "=" not in s:
+                continue
+            k, v = s.split("=", 1)
+            result[k.strip()] = v.strip()
+    for k, v in os.environ.items():
+        if k.startswith("MODEL_") or k in {"OLLAMA_HOST", "GEMINI_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "LLAMACPP_HOST"}:
+            result[k] = v
+    return result
+
+
+def _write_env(updates: Dict[str, str]) -> None:
+    path = _env_path()
+    existing = path.read_text(encoding="utf-8", errors="replace").splitlines() if path.exists() else []
+    update_keys = set(updates)
+    kept: List[str] = []
+    for line in existing:
+        s = line.strip()
+        if s and not s.startswith("#") and "=" in s:
+            key = s.split("=", 1)[0].strip()
+            if key in update_keys:
+                continue
+        kept.append(line)
+    if kept and kept[-1] != "":
+        kept.append("")
+    kept.append("# === JAV V16 Model Setup Wizard ===")
+    for key in sorted(updates):
+        kept.append(f"{key}={updates[key]}")
+    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    for k, v in updates.items():
+        os.environ[k] = v
+
+
+class ScrollFrame(ttk.Frame):
+    def __init__(self, master, **kw):
+        super().__init__(master, **kw)
+        self.canvas = tk.Canvas(self, bg=_BG, highlightthickness=0)
+        self.body = ttk.Frame(self.canvas, style="Wiz.TFrame")
+        self.scroll = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scroll.set)
+        self.window = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.body.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.window, width=e.width))
+
 
 class ModelSetupWizard(tk.Toplevel):
-    """Modal 4-step wizard for model configuration."""
+    WIDTH = 980
+    HEIGHT = 720
 
-    WIDTH = 760
-    HEIGHT = 540
-
-    def __init__(
-        self,
-        master: tk.Misc,
-        on_complete: Callable[[Dict[str, str]], None],
-        on_cancel: Callable[[], None],
-    ) -> None:
+    def __init__(self, master: tk.Misc, on_complete: Callable[[Dict[str, str]], None], on_cancel: Callable[[], None]) -> None:
         super().__init__(master)
         self.on_complete = on_complete
         self.on_cancel = on_cancel
-
-        self._collected: Dict[str, str] = {}
-        self._current_step = 0
-        self._step_widgets: List[tk.Widget] = []
-
-        self._steps = [
-            ProfileStep(self),
-            CredentialsStep(self),
-            TestStep(self),
-            SummaryStep(self),
+        self.env = _read_env()
+        self.collected: Dict[str, str] = {}
+        self.step_index = 0
+        self.steps = [
+            ("Profile", self._build_profile_step),
+            ("Roles", self._build_roles_step),
+            ("Providers", self._build_provider_step),
+            ("Test", self._build_test_step),
+            ("Finish", self._build_finish_step),
         ]
-
+        self.profile_var = tk.StringVar(value=self.env.get("MODEL_PROFILE", "offline") or "offline")
+        self.ollama_host_var = tk.StringVar(value=self.env.get("OLLAMA_HOST", "http://localhost:11434") or "http://localhost:11434")
+        self.role_provider_vars: Dict[str, tk.StringVar] = {}
+        self.role_model_vars: Dict[str, tk.StringVar] = {}
+        self.key_vars: Dict[str, tk.StringVar] = {
+            "GEMINI_API_KEY": tk.StringVar(value=self.env.get("GEMINI_API_KEY", "")),
+            "OPENAI_API_KEY": tk.StringVar(value=self.env.get("OPENAI_API_KEY", "")),
+            "OPENAI_BASE_URL": tk.StringVar(value=self.env.get("OPENAI_BASE_URL", "https://api.openai.com/v1")),
+            "ANTHROPIC_API_KEY": tk.StringVar(value=self.env.get("ANTHROPIC_API_KEY", "")),
+            "LLAMACPP_HOST": tk.StringVar(value=self.env.get("LLAMACPP_HOST", "http://localhost:8080")),
+        }
+        self.ollama_models: List[str] = []
+        self.ollama_error = ""
+        self.report_text: tk.Text | None = None
         self._setup_window()
-        self._apply_styles()
+        self._styles()
         self._build_shell()
         self._show_step(0)
         self.grab_set()
 
-    # ------------------------------------------------------------------
-    # Window setup
-    # ------------------------------------------------------------------
     def _setup_window(self) -> None:
-        self.title("JAV — Model Setup Wizard")
-        self.resizable(False, False)
+        self.title("JAV — Model Setup Wizard 2.0")
+        self.geometry(f"{self.WIDTH}x{self.HEIGHT}")
+        self.minsize(860, 560)
+        self.resizable(True, True)
         self.configure(bg=_BG)
         self.protocol("WM_DELETE_WINDOW", self._cancel)
 
-        # Center on master
-        self.update_idletasks()
-        master = self.master
-        if master:
-            mx = master.winfo_rootx() + (master.winfo_width() - self.WIDTH) // 2
-            my = master.winfo_rooty() + (master.winfo_height() - self.HEIGHT) // 2
-            self.geometry(f"{self.WIDTH}x{self.HEIGHT}+{mx}+{my}")
-        else:
-            sw = self.winfo_screenwidth()
-            sh = self.winfo_screenheight()
-            self.geometry(f"{self.WIDTH}x{self.HEIGHT}+{(sw - self.WIDTH)//2}+{(sh - self.HEIGHT)//2}")
-
-    def _apply_styles(self) -> None:
+    def _styles(self) -> None:
         style = ttk.Style(self)
         style.configure("Wiz.TFrame", background=_BG)
-        style.configure("WizHeader.TFrame", background=_BG_HEADER)
-        style.configure("WizCard.TFrame", background=_BG_CARD)
-        style.configure("WizCard.TLabel", background=_BG_CARD, foreground=_FG)
-        style.configure("WizCardMuted.TLabel", background=_BG_CARD, foreground=_FG_MUTED)
-        style.configure("WizCardSel.TFrame", background="#0d419d")
-        style.configure("Wiz.TLabel", background=_BG, foreground=_FG)
-        style.configure("WizMuted.TLabel", background=_BG, foreground=_FG_MUTED)
-        style.configure("WizTitle.TLabel", background=_BG_HEADER, foreground=_FG,
-                        font=("Segoe UI", 14, "bold"))
-        style.configure("WizSub.TLabel", background=_BG_HEADER, foreground=_FG_MUTED,
-                        font=("Segoe UI", 10))
-        style.configure("WizStep.TLabel", background=_BG_HEADER, foreground=_FG_MUTED,
-                        font=("Segoe UI", 9))
+        style.configure("WizCard.TFrame", background=_CARD)
+        style.configure("Wiz.TLabel", background=_BG, foreground=_TEXT)
+        style.configure("WizMuted.TLabel", background=_BG, foreground=_MUTED)
+        style.configure("Card.TLabel", background=_CARD, foreground=_TEXT)
+        style.configure("Muted.Card.TLabel", background=_CARD, foreground=_MUTED)
+        style.configure("Title.TLabel", background=_BG, foreground=_TEXT, font=("Segoe UI", 16, "bold"))
+        style.configure("Sub.TLabel", background=_BG, foreground=_MUTED, font=("Segoe UI", 10))
 
-    # ------------------------------------------------------------------
-    # Shell layout
-    # ------------------------------------------------------------------
     def _build_shell(self) -> None:
-        # Header
-        self._header = ttk.Frame(self, style="WizHeader.TFrame", padding=(20, 14))
-        self._header.pack(fill=tk.X)
-        self._title_lbl = ttk.Label(self._header, text="", style="WizTitle.TLabel")
-        self._title_lbl.pack(anchor="w")
-        self._sub_lbl = ttk.Label(self._header, text="", style="WizSub.TLabel")
-        self._sub_lbl.pack(anchor="w", pady=(2, 0))
-        self._step_lbl = ttk.Label(self._header, text="", style="WizStep.TLabel")
-        self._step_lbl.pack(anchor="e")
+        header = ttk.Frame(self, style="Wiz.TFrame", padding=(18, 12))
+        header.pack(fill=tk.X)
+        self.title_lbl = ttk.Label(header, text="", style="Title.TLabel")
+        self.title_lbl.pack(anchor="w")
+        self.sub_lbl = ttk.Label(header, text="", style="Sub.TLabel")
+        self.sub_lbl.pack(anchor="w", pady=(2, 0))
+        self.progress = ttk.Progressbar(self, maximum=len(self.steps))
+        self.progress.pack(fill=tk.X)
+        self.content = ScrollFrame(self)
+        self.content.pack(fill=tk.BOTH, expand=True, padx=14, pady=10)
+        nav = ttk.Frame(self, style="Wiz.TFrame", padding=(14, 10))
+        nav.pack(fill=tk.X)
+        ttk.Button(nav, text="Cancel", command=self._cancel).pack(side=tk.LEFT)
+        self.back_btn = ttk.Button(nav, text="← Back", command=self._back)
+        self.back_btn.pack(side=tk.RIGHT, padx=(6, 0))
+        self.next_btn = ttk.Button(nav, text="Next →", command=self._next)
+        self.next_btn.pack(side=tk.RIGHT)
 
-        # Progress bar
-        self._progress = ttk.Progressbar(self, orient="horizontal",
-                                         maximum=len(self._steps), value=0)
-        self._progress.pack(fill=tk.X)
-
-        # Content area
-        self._content = ttk.Frame(self, style="Wiz.TFrame", padding=(20, 16))
-        self._content.pack(fill=tk.BOTH, expand=True)
-
-        # Navigation buttons
-        nav = ttk.Frame(self, style="Wiz.TFrame", padding=(16, 10))
-        nav.pack(fill=tk.X, side=tk.BOTTOM)
-        self._cancel_btn = ttk.Button(nav, text="Cancel", command=self._cancel)
-        self._cancel_btn.pack(side=tk.LEFT)
-        self._next_btn = ttk.Button(nav, text="Next →", command=self._next,
-                                    style="Accent.TButton")
-        self._next_btn.pack(side=tk.RIGHT)
-        self._back_btn = ttk.Button(nav, text="← Back", command=self._back)
-        self._back_btn.pack(side=tk.RIGHT, padx=(0, 4))
-
-    # ------------------------------------------------------------------
-    # Navigation
-    # ------------------------------------------------------------------
-    def _show_step(self, index: int) -> None:
-        step = self._steps[index]
-        self._current_step = index
-
-        # Update header
-        self._title_lbl.configure(text=step.title)
-        self._sub_lbl.configure(text=step.subtitle)
-        self._step_lbl.configure(text=f"Step {index + 1} of {len(self._steps)}")
-        self._progress.configure(value=index + 1)
-
-        # Rebuild content area
-        for w in self._content.winfo_children():
+    def _clear(self) -> None:
+        for w in self.content.body.winfo_children():
             w.destroy()
-        step.build(self._content, self._collected)
 
-        # Button state
-        self._back_btn.configure(state="normal" if index > 0 else "disabled")
-        is_last = index == len(self._steps) - 1
-        self._next_btn.configure(text="Finish" if is_last else "Next →")
+    def _show_step(self, index: int) -> None:
+        self.step_index = index
+        name, builder = self.steps[index]
+        self.title_lbl.configure(text=f"Step {index + 1}: {name}")
+        self.sub_lbl.configure(text="Configure model roles and providers without editing .env manually.")
+        self.progress.configure(value=index + 1)
+        self._clear()
+        builder(self.content.body)
+        self.back_btn.configure(state="normal" if index > 0 else "disabled")
+        self.next_btn.configure(text="Finish" if index == len(self.steps) - 1 else "Next →")
+        self.content.canvas.yview_moveto(0)
 
     def _next(self) -> None:
-        step = self._steps[self._current_step]
-        ok, msg = step.is_valid()
-        if not ok:
-            tk.messagebox.showwarning("Cannot continue", msg, parent=self)
-            return
-        self._collected.update(step.get_config())
-
-        if self._current_step == len(self._steps) - 1:
+        if self.step_index == len(self.steps) - 1:
             self._finish()
-        else:
-            self._show_step(self._current_step + 1)
+            return
+        self._show_step(self.step_index + 1)
 
     def _back(self) -> None:
-        if self._current_step > 0:
-            self._show_step(self._current_step - 1)
+        if self.step_index > 0:
+            self._show_step(self.step_index - 1)
 
     def _cancel(self) -> None:
         self.on_cancel()
         self.destroy()
 
-    def _finish(self) -> None:
-        _write_env(_APP_ROOT / ".env", self._collected)
-        # Sync env vars into the running process so a refresh() call reflects them
-        for k, v in self._collected.items():
-            import os
-            os.environ[k] = v
-        self.on_complete(self._collected)
-        self.destroy()
+    def _label(self, parent, text: str, muted: bool = False, **kw):
+        return ttk.Label(parent, text=text, style="WizMuted.TLabel" if muted else "Wiz.TLabel", **kw)
 
+    def _card(self, parent, title: str, desc: str = ""):
+        card = ttk.Frame(parent, style="WizCard.TFrame", padding=12)
+        card.pack(fill=tk.X, pady=6)
+        ttk.Label(card, text=title, style="Card.TLabel", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        if desc:
+            ttk.Label(card, text=desc, style="Muted.Card.TLabel", wraplength=820).pack(anchor="w", pady=(2, 8))
+        return card
 
-# ────────────────────────────────────────────────────────────────────
-# Base step
-# ────────────────────────────────────────────────────────────────────
+    def _build_profile_step(self, parent) -> None:
+        self._label(parent, "Choose the profile that matches your hardware/API setup.", True).pack(anchor="w", pady=(0, 8))
+        for value, (title, desc) in PROFILE_INFO.items():
+            card = self._card(parent, title, desc)
+            rb = tk.Radiobutton(card, variable=self.profile_var, value=value, text=value,
+                                bg=_CARD, fg=_TEXT, selectcolor=_CARD2, activebackground=_CARD,
+                                activeforeground=_TEXT, command=self._apply_profile_defaults)
+            rb.pack(anchor="w")
+        ttk.Button(parent, text="Apply profile defaults to role table", command=self._apply_profile_defaults).pack(anchor="w", pady=8)
 
-class _WizardStep:
-    title: str = ""
-    subtitle: str = ""
+    def _apply_profile_defaults(self) -> None:
+        profile = self.profile_var.get().strip().lower()
+        spec = DEFAULT_PROFILE_MODELS.get(profile, DEFAULT_PROFILE_MODELS.get("offline", {}))
+        for role in ROLES:
+            provider, model = spec.get(role, ("ollama", ""))
+            self.role_provider_vars.setdefault(role, tk.StringVar()).set(provider)
+            self.role_model_vars.setdefault(role, tk.StringVar()).set(model)
 
-    def build(self, parent: ttk.Frame, collected: Dict[str, str]) -> None:
-        raise NotImplementedError
-
-    def get_config(self) -> Dict[str, str]:
-        return {}
-
-    def is_valid(self) -> Tuple[bool, str]:
-        return True, ""
-
-
-# ────────────────────────────────────────────────────────────────────
-# Step 1 — Profile
-# ────────────────────────────────────────────────────────────────────
-
-class ProfileStep(_WizardStep):
-    title = "Choose a Model Profile"
-    subtitle = "Select how JAV should connect to AI models."
-
-    def __init__(self, wizard: ModelSetupWizard) -> None:
-        self._var: Optional[tk.StringVar] = None
-        self._wizard = wizard
-
-    def build(self, parent: ttk.Frame, collected: Dict) -> None:
-        self._var = tk.StringVar(value=collected.get("MODEL_PROFILE", "offline"))
-
-        canvas = tk.Canvas(parent, bg=_BG, highlightthickness=0)
-        scroll = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        body = ttk.Frame(canvas, style="Wiz.TFrame")
-        canvas.create_window((0, 0), window=body, anchor="nw")
-        canvas.configure(yscrollcommand=scroll.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        body.bind("<Configure>", lambda _e: canvas.configure(
-            scrollregion=canvas.bbox("all")))
-
-        for p in _PROFILES:
-            self._make_card(body, p)
-
-    def _make_card(self, parent: ttk.Frame, profile: Dict) -> None:
-        value = profile["value"]
-        is_sel = self._var.get() == value
-
-        outer = tk.Frame(parent, bg=_BLUE if is_sel else _BG_CARD,
-                         padx=1, pady=1)
-        outer.pack(fill=tk.X, pady=4)
-
-        card = tk.Frame(outer, bg=_BG_CARD, padx=12, pady=8)
-        card.pack(fill=tk.X)
-
-        rb = tk.Radiobutton(
-            card, variable=self._var, value=value,
-            text=profile["label"],
-            bg=_BG_CARD, fg=_FG, selectcolor=_BG_CARD,
-            activebackground=_BG_CARD, activeforeground=_FG,
-            font=("Segoe UI", 11, "bold"),
-            command=lambda p=parent: self._refresh_cards(p),
-        )
-        rb.pack(anchor="w")
-
-        tk.Label(card, text=profile["description"], bg=_BG_CARD, fg=_FG,
-                 font=("Segoe UI", 9), wraplength=580, justify=tk.LEFT).pack(anchor="w")
-        tk.Label(card, text=profile["requirements"], bg=_BG_CARD, fg=_FG_MUTED,
-                 font=("Segoe UI", 8), wraplength=580).pack(anchor="w")
-
-    def _refresh_cards(self, scroll_parent) -> None:
-        # Rebuild cards to reflect selection highlight
-        for w in scroll_parent.winfo_children():
-            w.destroy()
-        for p in _PROFILES:
-            self._make_card(scroll_parent, p)
-
-    def get_config(self) -> Dict[str, str]:
-        return {"MODEL_PROFILE": self._var.get() if self._var else "offline"}
-
-
-# ────────────────────────────────────────────────────────────────────
-# Step 2 — Credentials
-# ────────────────────────────────────────────────────────────────────
-
-class CredentialsStep(_WizardStep):
-    title = "Provider Credentials"
-    subtitle = "Enter API keys required by your selected profile."
-
-    def __init__(self, wizard: ModelSetupWizard) -> None:
-        self._entries: Dict[str, tk.StringVar] = {}
-        self._profile: str = "offline"
-        self._wizard = wizard
-
-    def build(self, parent: ttk.Frame, collected: Dict) -> None:
-        import os
-        self._entries.clear()
-        self._profile = collected.get("MODEL_PROFILE", "offline")
-
-        profile_def = next((p for p in _PROFILES if p["value"] == self._profile), _PROFILES[0])
-
-        # Ollama host — always shown
-        self._add_field(
-            parent,
-            key="OLLAMA_HOST",
-            label="Ollama Host",
-            placeholder=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-            help_text="URL where Ollama is running (default: http://localhost:11434)",
-            secret=False,
-        )
-
-        if not (profile_def["needs_gemini"] or profile_def["needs_openai"]
-                or profile_def["needs_anthropic"]):
-            tk.Label(parent, text="No API keys required for this profile.",
-                     bg=_BG, fg=_GREEN, font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
+    def _ensure_role_vars(self) -> None:
+        if self.role_provider_vars and self.role_model_vars:
             return
+        profile = self.profile_var.get().strip().lower()
+        spec = DEFAULT_PROFILE_MODELS.get(profile, DEFAULT_PROFILE_MODELS.get("offline", {}))
+        for role in ROLES:
+            p_env = self.env.get(f"MODEL_{role.upper()}_PROVIDER", "").strip()
+            m_env = self.env.get(f"MODEL_{role.upper()}_NAME", "").strip()
+            p_def, m_def = spec.get(role, ("ollama", ""))
+            self.role_provider_vars[role] = tk.StringVar(value=p_env or p_def)
+            self.role_model_vars[role] = tk.StringVar(value=m_env or m_def)
 
-        if profile_def["needs_gemini"]:
-            self._add_field(
-                parent,
-                key="GEMINI_API_KEY",
-                label="Gemini API Key",
-                placeholder=os.environ.get("GEMINI_API_KEY", ""),
-                help_text="Get your key at console.cloud.google.com or aistudio.google.com",
-                secret=True,
-            )
+    def _build_roles_step(self, parent) -> None:
+        self._ensure_role_vars()
+        self._label(parent, "Assign a provider/model for each cognitive role. You can leave vision/embedding as Ollama defaults for now.", True).pack(anchor="w")
+        card = self._card(parent, "Role assignment", "Fast = chat, Reason = deeper analysis, Code = repair, Action = task/GUI planning.")
+        header = ttk.Frame(card, style="WizCard.TFrame")
+        header.pack(fill=tk.X)
+        for text, width in [("Role", 12), ("Provider", 16), ("Model", 34), ("Installed", 12)]:
+            ttk.Label(header, text=text, style="Muted.Card.TLabel", width=width, font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        self.installed_labels: Dict[str, ttk.Label] = {}
+        for role in ROLES:
+            row = ttk.Frame(card, style="WizCard.TFrame")
+            row.pack(fill=tk.X, pady=3)
+            ttk.Label(row, text=role, style="Card.TLabel", width=12).pack(side=tk.LEFT, padx=(0, 6))
+            ttk.Combobox(row, textvariable=self.role_provider_vars[role], values=PROVIDER_CHOICES, width=14, state="readonly").pack(side=tk.LEFT, padx=(0, 6))
+            cb = ttk.Combobox(row, textvariable=self.role_model_vars[role], values=self.ollama_models, width=34)
+            cb.pack(side=tk.LEFT, padx=(0, 6), fill=tk.X, expand=True)
+            lbl = ttk.Label(row, text="—", style="Muted.Card.TLabel", width=22)
+            lbl.pack(side=tk.LEFT)
+            self.installed_labels[role] = lbl
+        btns = ttk.Frame(parent, style="Wiz.TFrame")
+        btns.pack(fill=tk.X, pady=8)
+        ttk.Button(btns, text="Detect Ollama models", command=self._detect_ollama).pack(side=tk.LEFT)
+        ttk.Button(btns, text="Copy missing ollama pull commands", command=self._copy_pull_commands).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btns, text="Reset to profile defaults", command=lambda: (self._apply_profile_defaults(), self._show_step(self.step_index))).pack(side=tk.LEFT)
+        self._detect_ollama(update_labels=True)
 
-        if profile_def["needs_openai"]:
-            self._add_field(
-                parent,
-                key="OPENAI_API_KEY",
-                label="OpenAI API Key",
-                placeholder=os.environ.get("OPENAI_API_KEY", ""),
-                help_text="Get your key at platform.openai.com/api-keys",
-                secret=True,
-            )
-            self._add_field(
-                parent,
-                key="OPENAI_BASE_URL",
-                label="OpenAI Base URL (optional)",
-                placeholder=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-                help_text="Leave default unless using LM Studio / vLLM proxy",
-                secret=False,
-            )
+    def _detect_ollama(self, update_labels: bool = True) -> None:
+        ok, models, err = list_ollama_models(self.ollama_host_var.get())
+        self.ollama_models = models
+        self.ollama_error = err
+        if update_labels and hasattr(self, "installed_labels"):
+            for role in ROLES:
+                provider = self.role_provider_vars[role].get().strip().lower()
+                model = self.role_model_vars[role].get().strip()
+                lbl = self.installed_labels[role]
+                if provider != "ollama":
+                    lbl.configure(text="cloud/API", foreground=_MUTED)
+                elif not ok:
+                    lbl.configure(text="Ollama offline", foreground=_ORANGE)
+                elif model_matches(model, models):
+                    lbl.configure(text="installed", foreground=_GREEN)
+                else:
+                    lbl.configure(text="missing", foreground=_RED)
 
-        if profile_def["needs_anthropic"]:
-            self._add_field(
-                parent,
-                key="ANTHROPIC_API_KEY",
-                label="Anthropic API Key",
-                placeholder=os.environ.get("ANTHROPIC_API_KEY", ""),
-                help_text="Get your key at console.anthropic.com",
-                secret=True,
-            )
+    def _role_config(self) -> Dict[str, Tuple[str, str]]:
+        self._ensure_role_vars()
+        return {role: (self.role_provider_vars[role].get().strip().lower(), self.role_model_vars[role].get().strip()) for role in ROLES}
 
-        if profile_def["needs_openai"] or profile_def["needs_anthropic"]:
-            tk.Label(parent,
-                     text="Fill in at least one cloud provider key.",
-                     bg=_BG, fg=_FG_MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 0))
+    def _copy_pull_commands(self) -> None:
+        self._detect_ollama(update_labels=True)
+        cmds = ollama_pull_commands(self._role_config(), self.ollama_models)
+        text = "\n".join(cmds) if cmds else "# All configured Ollama models appear to be installed."
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        messagebox.showinfo("Copied", "Missing model commands copied to clipboard.", parent=self)
 
-    def _add_field(self, parent: ttk.Frame, key: str, label: str,
-                   placeholder: str, help_text: str, secret: bool) -> None:
-        box = tk.Frame(parent, bg=_BG)
-        box.pack(fill=tk.X, pady=(0, 10))
+    def _build_provider_step(self, parent) -> None:
+        self._label(parent, "Configure provider endpoints and API keys. Keys are saved in .env next to the app.", True).pack(anchor="w")
+        card = self._card(parent, "Local Ollama", "Used for offline/local profiles. Install Ollama separately; JAV only configures the connection.")
+        self._entry(card, "OLLAMA_HOST", self.ollama_host_var, secret=False)
+        cloud = self._card(parent, "Cloud/API providers", "Only fill providers you want to use. Live API tests are skipped here to avoid token costs.")
+        self._entry(cloud, "GEMINI_API_KEY", self.key_vars["GEMINI_API_KEY"], secret=True)
+        self._entry(cloud, "OPENAI_API_KEY", self.key_vars["OPENAI_API_KEY"], secret=True)
+        self._entry(cloud, "OPENAI_BASE_URL", self.key_vars["OPENAI_BASE_URL"], secret=False)
+        self._entry(cloud, "ANTHROPIC_API_KEY", self.key_vars["ANTHROPIC_API_KEY"], secret=True)
+        local = self._card(parent, "llama.cpp server", "Optional local HTTP server compatible with llama.cpp.")
+        self._entry(local, "LLAMACPP_HOST", self.key_vars["LLAMACPP_HOST"], secret=False)
 
-        tk.Label(box, text=label, bg=_BG, fg=_FG,
-                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        tk.Label(box, text=help_text, bg=_BG, fg=_FG_MUTED,
-                 font=("Segoe UI", 8)).pack(anchor="w")
+    def _entry(self, parent, label: str, var: tk.StringVar, secret: bool = False) -> None:
+        ttk.Label(parent, text=label, style="Muted.Card.TLabel").pack(anchor="w", pady=(6, 0))
+        e = tk.Entry(parent, textvariable=var, bg=_CARD2, fg=_TEXT, insertbackground=_TEXT, relief=tk.FLAT, bd=7, show="*" if secret else "")
+        e.pack(fill=tk.X)
 
-        var = tk.StringVar(value=placeholder)
-        self._entries[key] = var
-        entry = tk.Entry(box, textvariable=var,
-                         bg=_BG_CARD, fg=_FG, insertbackground=_FG,
-                         relief="flat", font=("Segoe UI", 10), bd=6,
-                         show="*" if secret else "")
-        entry.pack(fill=tk.X, pady=(2, 0))
+    def _build_test_step(self, parent) -> None:
+        self._label(parent, "This checks local Ollama availability and whether configured local models are pulled. Cloud keys are checked only for presence.", True).pack(anchor="w", pady=(0, 8))
+        ttk.Button(parent, text="Run model setup check", command=self._run_report).pack(anchor="w")
+        self.report_text = tk.Text(parent, height=26, bg=_CARD, fg=_TEXT, insertbackground=_TEXT, relief=tk.FLAT, wrap=tk.WORD)
+        self.report_text.pack(fill=tk.BOTH, expand=True, pady=8)
+        self._run_report()
 
-    def get_config(self) -> Dict[str, str]:
-        result: Dict[str, str] = {}
-        for key, var in self._entries.items():
+    def _run_report(self) -> None:
+        self._detect_ollama(update_labels=False)
+        env = self._collect_updates()
+        roles = self._role_config()
+        lines = ["Model Setup Check", "=" * 22, f"Profile: {env.get('MODEL_PROFILE')}", f"Ollama host: {env.get('OLLAMA_HOST')}"]
+        if self.ollama_error:
+            lines.append(f"Ollama: WARN — {self.ollama_error}")
+        else:
+            lines.append(f"Ollama: OK — {len(self.ollama_models)} installed model(s)")
+        lines.append("")
+        for role, (provider, model) in roles.items():
+            if provider == "ollama":
+                ok = model_matches(model, self.ollama_models)
+                lines.append(f"{role:<9} {provider}/{model:<28} {'OK' if ok else 'MISSING'}")
+            elif provider in {"gemini", "openai", "anthropic"}:
+                key_map = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+                present = bool(env.get(key_map[provider], "").strip())
+                lines.append(f"{role:<9} {provider}/{model:<28} {'KEY OK' if present else 'MISSING KEY'}")
+            else:
+                lines.append(f"{role:<9} {provider}/{model:<28} configured")
+        cmds = ollama_pull_commands(roles, self.ollama_models)
+        if cmds:
+            lines += ["", "Missing Ollama models — run:"] + [f"  {c}" for c in cmds]
+        if self.report_text:
+            self.report_text.delete("1.0", tk.END)
+            self.report_text.insert("1.0", "\n".join(lines))
+
+    def _build_finish_step(self, parent) -> None:
+        env = self._collect_updates()
+        self._label(parent, "Review settings. Click Finish to save to .env.", True).pack(anchor="w", pady=(0, 8))
+        box = tk.Text(parent, height=28, bg=_CARD, fg=_TEXT, relief=tk.FLAT, wrap=tk.NONE)
+        box.pack(fill=tk.BOTH, expand=True)
+        secret_keys = {"GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"}
+        for key in sorted(env):
+            value = env[key]
+            shown = (value[:4] + "******") if key in secret_keys and len(value) > 4 else value
+            box.insert(tk.END, f"{key}={shown}\n")
+        box.configure(state="disabled")
+        self._label(parent, f"Will write to: {_env_path()}", True).pack(anchor="w", pady=8)
+
+    def _collect_updates(self) -> Dict[str, str]:
+        self._ensure_role_vars()
+        result: Dict[str, str] = {"MODEL_PROFILE": self.profile_var.get().strip().lower() or "offline", "OLLAMA_HOST": self.ollama_host_var.get().strip() or "http://localhost:11434"}
+        for role in ROLES:
+            result[f"MODEL_{role.upper()}_PROVIDER"] = self.role_provider_vars[role].get().strip().lower() or "null"
+            result[f"MODEL_{role.upper()}_NAME"] = self.role_model_vars[role].get().strip()
+        for key, var in self.key_vars.items():
             val = var.get().strip()
             if val:
                 result[key] = val
         return result
 
-    def is_valid(self) -> Tuple[bool, str]:
-        profile_def = next((p for p in _PROFILES if p["value"] == self._profile), None)
-        if profile_def and profile_def.get("needs_openai") and profile_def.get("needs_anthropic"):
-            oa = (self._entries.get("OPENAI_API_KEY") or tk.StringVar()).get().strip()
-            ant = (self._entries.get("ANTHROPIC_API_KEY") or tk.StringVar()).get().strip()
-            if not oa and not ant:
-                return False, "The 'power' profile requires at least one API key (OpenAI or Anthropic)."
-        return True, ""
-
-
-# ────────────────────────────────────────────────────────────────────
-# Step 3 — Test connectivity
-# ────────────────────────────────────────────────────────────────────
-
-class TestStep(_WizardStep):
-    title = "Test Connectivity"
-    subtitle = "Verifying configured providers before saving."
-
-    def __init__(self, wizard: ModelSetupWizard) -> None:
-        self._wizard = wizard
-        self._result_frame: Optional[ttk.Frame] = None
-        self._retry_btn: Optional[tk.Widget] = None
-
-    def build(self, parent: ttk.Frame, collected: Dict) -> None:
-        self._collected = collected
-        self._parent = parent
-
-        tk.Label(parent, text="Checking providers…", bg=_BG, fg=_FG_MUTED,
-                 font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 12))
-
-        self._result_frame = tk.Frame(parent, bg=_BG)
-        self._result_frame.pack(fill=tk.X)
-
-        threading.Thread(target=self._run_tests, daemon=True).start()
-
-    def _run_tests(self) -> None:
-        results: List[Tuple[str, str, str]] = []  # (name, state, detail)
-        collected = self._collected
-
-        ollama_host = collected.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-        try:
-            import urllib.request
-            req = urllib.request.urlopen(f"{ollama_host}/api/tags", timeout=5)
-            import json
-            data = json.loads(req.read().decode())
-            n = len(data.get("models", []))
-            results.append(("Ollama", "ok", f"connected — {n} model(s) available"))
-        except Exception as exc:
-            results.append(("Ollama", "fail", str(exc)[:80]))
-
-        for name, env_key in [
-            ("Gemini", "GEMINI_API_KEY"),
-            ("OpenAI", "OPENAI_API_KEY"),
-            ("Anthropic", "ANTHROPIC_API_KEY"),
-        ]:
-            val = collected.get(env_key, "").strip()
-            if val:
-                results.append((name, "key", "API key present (live test skipped — would cost tokens)"))
-            else:
-                results.append((name, "none", "no key configured"))
-
-        self._parent.after(0, self._show_results, results)
-
-    def _show_results(self, results: List[Tuple[str, str, str]]) -> None:
-        for w in self._result_frame.winfo_children():
-            w.destroy()
-
-        for name, state, detail in results:
-            row = tk.Frame(self._result_frame, bg=_BG)
-            row.pack(fill=tk.X, pady=3)
-
-            if state == "ok":
-                icon, color = "[OK] ", _GREEN
-            elif state == "key":
-                icon, color = "[KEY]", _ORANGE
-            elif state == "fail":
-                icon, color = "[ ✗ ]", _RED
-            else:
-                icon, color = "[ — ]", _FG_MUTED
-
-            tk.Label(row, text=icon, bg=_BG, fg=color,
-                     font=("Consolas", 10, "bold"), width=6, anchor="w").pack(side=tk.LEFT)
-            tk.Label(row, text=f"{name:<10} {detail}", bg=_BG, fg=_FG,
-                     font=("Segoe UI", 9), anchor="w").pack(side=tk.LEFT)
-
-    def get_config(self) -> Dict[str, str]:
-        return {}
-
-
-# ────────────────────────────────────────────────────────────────────
-# Step 4 — Summary
-# ────────────────────────────────────────────────────────────────────
-
-class SummaryStep(_WizardStep):
-    title = "Review & Finish"
-    subtitle = "The following settings will be written to your .env file."
-
-    def __init__(self, wizard: ModelSetupWizard) -> None:
-        self._wizard = wizard
-
-    def build(self, parent: ttk.Frame, collected: Dict) -> None:
-        tk.Label(parent,
-                 text="Review the settings below, then click Finish to save.",
-                 bg=_BG, fg=_FG_MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 10))
-
-        box = tk.Frame(parent, bg=_BG_CARD, padx=12, pady=10)
-        box.pack(fill=tk.BOTH, expand=True)
-
-        canvas = tk.Canvas(box, bg=_BG_CARD, highlightthickness=0)
-        scroll = ttk.Scrollbar(box, orient="vertical", command=canvas.yview)
-        body = tk.Frame(canvas, bg=_BG_CARD)
-        canvas.create_window((0, 0), window=body, anchor="nw")
-        canvas.configure(yscrollcommand=scroll.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        body.bind("<Configure>", lambda _e: canvas.configure(
-            scrollregion=canvas.bbox("all")))
-
-        secret_keys = {"GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-                       "OPENAI_SECRET", "LLAMACPP_API_KEY"}
-
-        for key in sorted(collected.keys()):
-            value = collected[key]
-            display = (value[:4] + "●" * 6) if key in secret_keys and len(value) > 4 else value
-
-            row = tk.Frame(body, bg=_BG_CARD)
-            row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=f"{key:<30}", bg=_BG_CARD, fg=_FG_MUTED,
-                     font=("Consolas", 9), anchor="w", width=32).pack(side=tk.LEFT)
-            tk.Label(row, text=f"= {display}", bg=_BG_CARD, fg=_FG,
-                     font=("Consolas", 9), anchor="w").pack(side=tk.LEFT)
-
-        if not collected:
-            tk.Label(body, text="(no settings collected — nothing to write)",
-                     bg=_BG_CARD, fg=_FG_MUTED, font=("Segoe UI", 9)).pack(anchor="w")
-
-        tk.Label(parent,
-                 text=f"Will write to: {_APP_ROOT / '.env'}",
-                 bg=_BG, fg=_FG_MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(8, 0))
+    def _finish(self) -> None:
+        updates = self._collect_updates()
+        _write_env(updates)
+        self.on_complete(updates)
+        messagebox.showinfo("Saved", "Model profile saved. Refresh model status or restart JAV if needed.", parent=self)
+        self.destroy()

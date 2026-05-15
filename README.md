@@ -62,6 +62,39 @@ data/brain/logs/desktop_crash.log
 Нормально, якщо doctor показує `WARN` для optional/external речей, які ти ще не ставив, наприклад `Piper`, `Ollama`, `sounddevice`, `faster-whisper`, `mss` або `pyautogui`. Це ламає тільки відповідну функцію, а не все ядро. `FAIL` тепер означає саме критичну проблему required-компонента.
 
 
+
+## First Launch / Setup Wizard
+
+For a fresh install or portable copy, start the setup wizard:
+
+```bash
+python main.py --setup
+```
+
+In a built Windows folder use:
+
+```bat
+run_setup.bat
+```
+
+The wizard lets you choose:
+
+- portable or installed memory mode;
+- memory/data folder;
+- workspace folder;
+- model profile;
+- dependency check;
+- optional voice test.
+
+To show the wizard again:
+
+```bash
+python main.py --reset-setup
+python main.py --setup
+```
+
+In a portable build, JAV stores setup completion both beside the app and inside `data/brain`, so moving the whole folder to another drive should keep the setup state and relative paths working.
+
 ## Voice setup / перевірка голосу
 
 Перед запуском голосового режиму можна перевірити залежності без старту всього ядра:
@@ -713,4 +746,33 @@ ollama pull qwen2.5-coder:7b
 
 In Desktop UI, open **Models** → **Setup Wizard** or **Run Health Check**.
 Model/provider/API changes are saved to `.env`; model-router settings are now reloaded live in desktop mode, but a full restart is still recommended after changing paths, voice, OCR, or service settings.
+
+## V16 — Model Setup Wizard 2.0
+
+Added a full model configuration workflow:
+
+- `python main.py --model-doctor` for offline model diagnostics;
+- desktop Model Setup Wizard 2.0 with Offline / Low RAM / Hybrid / Cloud / Code / Voice profiles;
+- per-role assignment for `fast`, `reason`, `code`, `critic`, `vision`, `embedding`, `action`;
+- Ollama discovery through `/api/tags`;
+- installed/missing model indicators;
+- copy-ready `ollama pull ...` commands for missing local models;
+- API key fields for Gemini, OpenAI-compatible and Anthropic providers;
+- safer `.env` writing beside the app for portable/frozen builds.
+
+Recommended local starter models:
+
+```bash
+ollama serve
+ollama pull qwen2.5:7b
+ollama pull llama3.1:8b
+ollama pull qwen2.5-coder:7b
+ollama pull nomic-embed-text
+```
+
+Run diagnostics:
+
+```bash
+python main.py --model-doctor
+```
 

@@ -247,3 +247,48 @@
 - Added a new Desktop **Voice** tab with microphone listing, TTS tests, voice report, dependency command copy and start/stop voice process.
 - Doctor now includes a dedicated voice setup section so missing voice dependencies are easier to understand.
 - Voice warnings remain optional and do not block core/chat/desktop startup.
+
+## V15.9 — First Launch + Installer Stability
+
+- Added explicit setup commands:
+  - `python main.py --setup`
+  - `python main.py --reset-setup`
+- First-launch wizard is now resizable and scrollable, so it fits smaller laptop screens.
+- First-launch setup now creates selected memory/workspace/screenshot/log folders before the main app starts.
+- Setup completion is now stored both beside the app and inside the data directory, improving portable/movable installs.
+- Portable paths selected by the wizard are saved relative to the app folder when possible.
+- Doctor now reports setup/portable state: setup complete/incomplete, `.env` presence and memory/data directory path.
+- Build output now includes setup launchers:
+  - `run_setup.bat` / `run_setup.sh`
+  - `run_reset_setup.bat`
+- Windows installer script updated to version 15.9 and now adds Start Menu entries for **JAV Setup Wizard** and **Reset JAV Setup**.
+
+## V16 — Model Setup Wizard 2.0
+
+Added a full model configuration workflow:
+
+- `python main.py --model-doctor` for offline model diagnostics;
+- desktop Model Setup Wizard 2.0 with Offline / Low RAM / Hybrid / Cloud / Code / Voice profiles;
+- per-role assignment for `fast`, `reason`, `code`, `critic`, `vision`, `embedding`, `action`;
+- Ollama discovery through `/api/tags`;
+- installed/missing model indicators;
+- copy-ready `ollama pull ...` commands for missing local models;
+- API key fields for Gemini, OpenAI-compatible and Anthropic providers;
+- safer `.env` writing beside the app for portable/frozen builds.
+
+Recommended local starter models:
+
+```bash
+ollama serve
+ollama pull qwen2.5:7b
+ollama pull llama3.1:8b
+ollama pull qwen2.5-coder:7b
+ollama pull nomic-embed-text
+```
+
+Run diagnostics:
+
+```bash
+python main.py --model-doctor
+```
+

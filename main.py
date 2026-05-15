@@ -912,17 +912,49 @@ def _remove_watchdog() -> int:
     return 0
 
 
+def _setup_sentinel_paths(cfg: "KernelConfig") -> list[Path]:
+    paths = [_APP_ROOT / ".jav_setup_complete"]
+    try:
+        data_dir = Path(cfg.persistence_dir).expanduser()
+        if not data_dir.is_absolute():
+            data_dir = _APP_ROOT / data_dir
+        paths.append(data_dir / ".jav_setup_complete")
+    except Exception:
+        pass
+    return paths
+
+
 def _is_first_launch(cfg: "KernelConfig") -> bool:
-    """Return True if no data directory exists and the setup sentinel is missing."""
-    sentinel = _APP_ROOT / ".jav_setup_complete"
-    if sentinel.exists():
+    """Return True if setup has not been completed for this install/data dir."""
+    if os.environ.get("JAV_SETUP_COMPLETE", "").lower() in {"1", "true", "yes", "done"}:
+        return False
+    if any(path.exists() for path in _setup_sentinel_paths(cfg)):
         return False
     data_dir = Path(cfg.persistence_dir).expanduser()
-    # If data/brain already has content, user has used JAV before — skip wizard
-    if data_dir.exists() and any(data_dir.iterdir()):
-        return False
+    if not data_dir.is_absolute():
+        data_dir = _APP_ROOT / data_dir
+    # If the data directory already has real content, don't surprise existing users
+    # with setup.  Ignore an empty logs folder.
+    if data_dir.exists():
+        visible = [p for p in data_dir.iterdir() if p.name not in {"logs", ".jav_setup_complete"}]
+        if visible:
+            return False
     return True
 
+
+def _reset_setup_sentinels(cfg: "KernelConfig") -> int:
+    removed = 0
+    for path in _setup_sentinel_paths(cfg):
+        try:
+            if path.exists():
+                path.unlink()
+                removed += 1
+                print(f"Removed setup sentinel: {path}")
+        except Exception as exc:
+            print(f"Could not remove {path}: {exc}")
+    if removed == 0:
+        print("No setup sentinel found. The wizard will run on next desktop start if data is empty.")
+    return 0
 
 def _run_first_launch_wizard(cfg: "KernelConfig") -> None:
     """Show the first-launch wizard modally before the main UI opens."""
@@ -962,12 +994,15 @@ def main() -> None:
     parser.add_argument("--service", action="store_true", help="Start headless service mode with heartbeat/logging for watchdog/systemd")
     parser.add_argument("--doctor", action="store_true", help="Run startup diagnostics and dependency checks")
     parser.add_argument("--voice-doctor", action="store_true", help="Run voice setup diagnostics without starting the kernel")
+    parser.add_argument("--model-doctor", action="store_true", help="Run model setup diagnostics without starting the kernel")
     parser.add_argument("--voice-list-mics", action="store_true", help="List available microphone/input devices")
     parser.add_argument("--voice-test-pyttsx3", nargs="?", const="JAV pyttsx3 voice test.", help="Speak a short test phrase through pyttsx3")
     parser.add_argument("--voice-test-piper", nargs="?", const="JAV Piper voice test.", help="Speak a short test phrase through Piper")
     parser.add_argument("--init-portable", nargs="?", const=".", help="Create portable data folders and .env in this project or target folder")
     parser.add_argument("--init-watchdog", action="store_true", help="Register JAV watchdog Windows Startup shortcut (auto-restart on crash)")
     parser.add_argument("--remove-watchdog", action="store_true", help="Remove JAV watchdog Windows Startup shortcut")
+    parser.add_argument("--setup", action="store_true", help="Run the first-launch setup wizard now")
+    parser.add_argument("--reset-setup", action="store_true", help="Remove setup-complete sentinels so the setup wizard appears again")
     parser.add_argument("--host", default=cfg.web_host, help="Web UI host")
     parser.add_argument("--port", type=int, default=cfg.web_port, help="Web UI port")
     args = parser.parse_args()
@@ -991,9 +1026,20 @@ def main() -> None:
     if args.remove_watchdog:
         sys.exit(_remove_watchdog())
 
+    if args.reset_setup:
+        sys.exit(_reset_setup_sentinels(cfg))
+
+    if args.setup:
+        _run_first_launch_wizard(cfg)
+        return
+
     if args.doctor:
         from scripts.doctor import main as doctor_main
         sys.exit(doctor_main())
+
+    if args.model_doctor:
+        from scripts.model_setup import main as model_setup_main
+        sys.exit(model_setup_main())
 
     if args.voice_doctor or args.voice_list_mics or args.voice_test_pyttsx3 is not None or args.voice_test_piper is not None:
         from scripts import voice_setup

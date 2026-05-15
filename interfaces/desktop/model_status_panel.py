@@ -245,6 +245,7 @@ class ModelStatusPanel(ttk.Frame):
         from interfaces.desktop.model_setup_wizard import ModelSetupWizard
 
         def on_complete(cfg: dict) -> None:
+            self._last_status = None
             self.refresh()
 
         ModelSetupWizard(

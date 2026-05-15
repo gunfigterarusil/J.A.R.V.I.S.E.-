@@ -26,6 +26,33 @@ _APP_ROOT = (
 )
 
 
+def _as_portable_path(path: str | Path) -> str:
+    """Return a stable portable-relative path when the folder is inside app root."""
+    try:
+        resolved = Path(path).expanduser().resolve()
+        rel = resolved.relative_to(_APP_ROOT.resolve())
+        return rel.as_posix()
+    except Exception:
+        return str(path)
+
+
+def _ensure_setup_folders(config: Dict[str, str]) -> None:
+    """Create folders selected by the wizard so the first desktop boot is clean."""
+    for key in ("JARVIS_DATA_DIR", "ACTION_WORKSPACE_PATH", "SCREENSHOT_DIR"):
+        value = (config.get(key) or "").strip()
+        if not value:
+            continue
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = _APP_ROOT / path
+        path.mkdir(parents=True, exist_ok=True)
+    data_dir = (config.get("JARVIS_DATA_DIR") or "data/brain").strip()
+    data_path = Path(data_dir).expanduser()
+    if not data_path.is_absolute():
+        data_path = _APP_ROOT / data_path
+    (data_path / "logs").mkdir(parents=True, exist_ok=True)
+
+
 # ---------------------------------------------------------------------------
 # Base step
 # ---------------------------------------------------------------------------
@@ -161,12 +188,16 @@ class StorageModeStep(WizardStep):
         if mode == "portable":
             cfg["JAV_PORTABLE"] = "true"
             cfg["JARVIS_DATA_DIR"] = "data/brain"
+            cfg["SCREENSHOT_DIR"] = "data/screenshots"
         elif mode == "installed":
             cfg["JAV_PORTABLE"] = "false"
             cfg["JARVIS_DATA_DIR"] = "~/.jarvis_brain"
+            cfg["SCREENSHOT_DIR"] = "~/.jarvis_brain/screenshots"
         else:
             cfg["JAV_PORTABLE"] = "false"
             cfg["JARVIS_DATA_DIR"] = self._resolved_path()
+            cfg["SCREENSHOT_DIR"] = str(Path(self._resolved_path()).expanduser() / "screenshots")
+        cfg["JAV_SETUP_COMPLETE"] = "true"
         return cfg
 
     def is_valid(self) -> tuple[bool, str]:
@@ -219,7 +250,8 @@ class WorkspaceStep(WizardStep):
 
     def get_config(self) -> Dict[str, str]:
         path = (self._path_var.get() or "").strip()
-        return {"ACTION_WORKSPACE_PATH": path or "data/workspace"}
+        path = path or str((_APP_ROOT / "data" / "workspace").resolve())
+        return {"ACTION_WORKSPACE_PATH": _as_portable_path(path)}
 
 
 # ---------------------------------------------------------------------------
@@ -511,9 +543,10 @@ class FirstLaunchWizard(tk.Toplevel):
         on_cancel: Callable[[], None],
     ) -> None:
         super().__init__(master)
-        self.title("JAV Setup Wizard")
-        self.geometry("720x540")
-        self.resizable(False, False)
+        self.title("JAV First Launch Setup")
+        self.geometry("820x640")
+        self.minsize(720, 520)
+        self.resizable(True, True)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._cancel)
 
@@ -586,9 +619,24 @@ class FirstLaunchWizard(tk.Toplevel):
         if isinstance(step, SummaryStep):
             step.set_collected(self._collected)
 
-        # Build step content
-        content = ttk.Frame(self._content_area)
-        content.pack(fill=tk.BOTH, expand=True)
+        # Build step content inside a scrollable canvas so the wizard fits on
+        # small laptop screens and inside VM/remote desktop sessions.
+        canvas = tk.Canvas(self._content_area, highlightthickness=0)
+        scroll = ttk.Scrollbar(self._content_area, orient="vertical", command=canvas.yview)
+        content = ttk.Frame(canvas)
+        win = canvas.create_window((0, 0), window=content, anchor="nw")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _on_content(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas(event):
+            canvas.itemconfigure(win, width=event.width)
+
+        content.bind("<Configure>", _on_content)
+        canvas.bind("<Configure>", _on_canvas)
         step.build(content)
         self._content_frame = content
 
@@ -643,9 +691,18 @@ class FirstLaunchWizard(tk.Toplevel):
                 parent=self,
             )
 
-        # Create sentinel
+        # Create selected folders and setup sentinels.  We keep both an app-root
+        # sentinel and a data-dir sentinel so portable folders remain movable.
         try:
+            _ensure_setup_folders(self._collected)
+        except Exception as exc:
+            messagebox.showwarning("Setup", f"Settings were saved, but some folders could not be created:\n{exc}", parent=self)
             (_APP_ROOT / ".jav_setup_complete").touch()
+            data_dir = self._collected.get("JARVIS_DATA_DIR", "data/brain")
+            data_path = Path(data_dir).expanduser()
+            if not data_path.is_absolute():
+                data_path = _APP_ROOT / data_path
+            (data_path / ".jav_setup_complete").touch()
         except Exception:
             pass
 
