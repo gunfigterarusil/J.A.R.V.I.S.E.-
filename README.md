@@ -6,6 +6,45 @@
 
 ---
 
+## Швидка діагностика, якщо програма не запускається
+
+Перед тим як шукати проблему вручну, запусти:
+
+```bash
+python main.py --doctor
+```
+
+Або напряму:
+
+```bash
+python scripts/doctor.py
+```
+
+Doctor перевіряє:
+
+- імпорти ядра;
+- наявність `README.md`, `CHANGELOG.md`, `modules`, `interfaces`;
+- desktop/Tkinter;
+- optional залежності для голосу, OCR, GUI automation;
+- зовнішні утиліти `tesseract`, `piper`, `ollama`;
+- `python main.py --help`;
+- короткий chat smoke-test.
+
+Якщо desktop не стартує, `run_desktop.bat` / `run_desktop.sh` автоматично запустить doctor. Crash-log desktop-режиму зберігається тут:
+
+```text
+data/brain/logs/desktop_crash.log
+```
+
+або, якщо portable mode не ввімкнений:
+
+```text
+~/.jarvis_brain/logs/desktop_crash.log
+```
+
+Нормально, якщо doctor показує `FAIL` для optional речей, які ти ще не ставив, наприклад `Piper`, `Ollama`, `sounddevice`, `faster-whisper`. Це ламає тільки відповідну функцію, а не все ядро.
+
+
 ## 1. Що він уміє зараз
 
 | Напрям | Статус |

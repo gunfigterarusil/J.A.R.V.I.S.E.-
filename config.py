@@ -455,6 +455,7 @@ class ProactiveConfig:
     daily_summary_enabled: bool = field(default_factory=lambda: _env_bool("PROACTIVE_DAILY_SUMMARY_ENABLED", "true"))
     daily_summary_interval_seconds: float = field(default_factory=lambda: float(os.environ.get("PROACTIVE_DAILY_SUMMARY_INTERVAL_SECONDS", "86400")))
     do_not_disturb: bool = field(default_factory=lambda: _env_bool("PROACTIVE_DO_NOT_DISTURB", "false"))
+    startup_grace_seconds: float = field(default_factory=lambda: float(os.environ.get("PROACTIVE_STARTUP_GRACE_SECONDS", "15")))
 
 
 @dataclass

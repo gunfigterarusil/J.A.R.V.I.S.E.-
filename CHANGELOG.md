@@ -1,5 +1,16 @@
 # CHANGELOG
 
+
+## V15.2 — Startup stability / runtime doctor
+
+- Added `python main.py --doctor` for startup diagnostics, dependency checks, import checks and chat smoke test.
+- Added `scripts/doctor.py` for direct diagnostics.
+- Improved desktop startup failure handling: writes `logs/desktop_crash.log` and prints a clear message instead of silently closing.
+- Desktop now creates the Tk window before building the full kernel, so GUI/display problems are detected immediately.
+- `run_desktop.bat` and `run_desktop.sh` now run doctor automatically if desktop startup fails.
+- Added `PROACTIVE_STARTUP_GRACE_SECONDS` so startup alerts do not steal the first chat/desktop response.
+- Cleaned generated `__pycache__` / `.pyc` files from release ZIP.
+
 Уся історія великих етапів JAV зібрана тут. Окремі `V*_*.md` patch-файли більше не використовуються в корені проєкту.
 
 ---

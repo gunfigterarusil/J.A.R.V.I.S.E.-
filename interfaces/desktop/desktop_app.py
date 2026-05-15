@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, TclError
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -63,8 +63,6 @@ class InfoCard(ttk.Frame):
 class DesktopApp:
     def __init__(self, cfg: KernelConfig | None = None) -> None:
         self.cfg = cfg or KernelConfig()
-        self.kernel: Kernel = build_kernel(self.cfg)
-        self.api = KernelAPI(self.kernel)
         self.messages: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self.events: "queue.Queue[dict]" = queue.Queue()
         self.recent_events: list[dict] = []
@@ -74,13 +72,33 @@ class DesktopApp:
         self._last_notification: Dict[str, float] = {}
         self.notifier = DesktopNotifier(enabled=os.environ.get("DESKTOP_NOTIFICATIONS_ENABLED", "true").lower() == "true")
         self.tray: Optional[AssistantTray] = None
-        self._patch_event_tap()
 
-        self.root = tk.Tk()
+        try:
+            self.root = tk.Tk()
+        except TclError as exc:
+            raise RuntimeError(
+                "Desktop UI could not start because Tk cannot open a display. "
+                "On Windows, run this from a normal desktop session. On Linux, start it inside an X11/Wayland session, "
+                "or use: python main.py --chat / --web / --service."
+            ) from exc
+
         self.root.title("JAV — Assistant Shell")
         self.root.geometry(os.environ.get("DESKTOP_WINDOW_GEOMETRY", "1320x820"))
         self.root.minsize(980, 660)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+
+        # Build the cognitive kernel only after the window exists. This makes desktop startup
+        # failures visible and prevents a silent/crashing launch when no GUI display is available.
+        try:
+            self.kernel: Kernel = build_kernel(self.cfg)
+            self.api = KernelAPI(self.kernel)
+            self._patch_event_tap()
+        except Exception as exc:
+            try:
+                messagebox.showerror("JAV startup error", f"Kernel failed to start:\n{exc}")
+            finally:
+                self.root.destroy()
+            raise
 
         self._build_ui()
         self._start_optional_tray()
@@ -736,6 +754,25 @@ class DesktopApp:
         self.root.mainloop()
 
 
+def _write_desktop_crash_log(cfg: KernelConfig | None, exc: BaseException) -> Path:
+    try:
+        base = Path(getattr(cfg, "persistence_dir", "~/.jarvis_brain")).expanduser() if cfg else Path.home() / ".jarvis_brain"
+        log_dir = base / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        path = log_dir / "desktop_crash.log"
+        import traceback
+        path.write_text(traceback.format_exc(), encoding="utf-8")
+        return path
+    except Exception:
+        return Path("desktop_crash.log")
+
+
 def run_desktop_app(cfg: KernelConfig | None = None) -> None:
-    app = DesktopApp(cfg)
-    app.run()
+    try:
+        app = DesktopApp(cfg)
+        app.run()
+    except Exception as exc:
+        crash_log = _write_desktop_crash_log(cfg, exc)
+        print(f"JAV desktop failed to start: {exc}", file=sys.stderr)
+        print(f"Crash log: {crash_log}", file=sys.stderr)
+        raise

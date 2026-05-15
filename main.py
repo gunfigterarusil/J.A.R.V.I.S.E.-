@@ -813,6 +813,7 @@ def main() -> None:
     parser.add_argument("--chat", action="store_true", help="Start terminal dialogue mode")
     parser.add_argument("--desktop", action="store_true", help="Start native desktop interface instead of browser UI")
     parser.add_argument("--service", action="store_true", help="Start headless service mode with heartbeat/logging for watchdog/systemd")
+    parser.add_argument("--doctor", action="store_true", help="Run startup diagnostics and dependency checks")
     parser.add_argument("--init-portable", nargs="?", const=".", help="Create portable data folders and .env in this project or target folder")
     parser.add_argument("--host", default=cfg.web_host, help="Web UI host")
     parser.add_argument("--port", type=int, default=cfg.web_port, help="Web UI port")
@@ -830,6 +831,10 @@ def main() -> None:
         print(f"Workspace: {root / 'data' / 'workspace'}")
         print(".env uses relative paths so a portable drive can change drive letter/mount point.")
         return
+
+    if args.doctor:
+        from scripts.doctor import main as doctor_main
+        sys.exit(doctor_main())
 
     selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat, args.desktop, args.service) if enabled)
     if selected_modes > 1:

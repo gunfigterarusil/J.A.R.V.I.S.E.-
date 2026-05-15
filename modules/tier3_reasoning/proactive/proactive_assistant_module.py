@@ -27,6 +27,7 @@ class ProactiveAssistantModule(CognitiveModule):
         self._events: List[Dict[str, Any]] = []
         self._last_daily_summary = 0.0
         self._state_path: Path | None = None
+        self._started_at = time.time()
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -126,6 +127,11 @@ class ProactiveAssistantModule(CognitiveModule):
         if bool(getattr(cfg, "do_not_disturb", False)):
             return
         now = time.time()
+        # Avoid stealing the first CLI/Desktop response during startup checks.
+        # The signal is still remembered and visible via /proactive or /system.
+        startup_grace = float(getattr(cfg, "startup_grace_seconds", 15.0) or 0.0)
+        if now - self._started_at < startup_grace and severity != "critical":
+            return
         if now - self._last_notify_by_kind.get(kind, 0.0) < cooldown:
             return
         self._last_notify_by_kind[kind] = now
