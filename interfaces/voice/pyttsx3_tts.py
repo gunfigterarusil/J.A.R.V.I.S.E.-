@@ -50,6 +50,7 @@ class Pyttsx3TTS:
             return
         engine = self._get_engine()
         try:
+            engine.setProperty("rate", self.rate)  # apply any dynamic update
             engine.say(text)
             engine.runAndWait()
         except Exception as exc:  # pragma: no cover - depends on host audio drivers

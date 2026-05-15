@@ -18,7 +18,9 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from core.event_bus import CognitiveEvent as Event, Priority
+from interfaces.voice.back_channel import pick_phrase
 from interfaces.voice.stt import FasterWhisperSTT, STTUnavailable
+from interfaces.voice.wake_word_detector import OpenWakeWordDetector, WakeWordUnavailable
 
 logger = logging.getLogger("voice.loop")
 
@@ -51,6 +53,8 @@ class VoiceLoop:
         self.interrupt_phrases = self._phrase_set(getattr(cfg, "interrupt_phrases", "stop,зупинись,стоп"))
         self.mute_phrases = self._phrase_set(getattr(cfg, "mute_phrases", "mute,мовчи,замовкни,не говори"))
         self.unmute_phrases = self._phrase_set(getattr(cfg, "unmute_phrases", "unmute,говори,можеш говорити"))
+        self.back_channel_enabled = bool(getattr(cfg, "back_channel_enabled", True))
+        self.back_channel_language = str(getattr(cfg, "back_channel_language", "uk") or "uk")
         self._vad_stop = threading.Event()
 
         self._running = False
@@ -69,6 +73,11 @@ class VoiceLoop:
             record_seconds=getattr(cfg, "record_seconds", 5.0),
             energy_threshold=getattr(cfg, "energy_threshold", 0.005),
         )
+
+        # Phase 3A — acoustic wake word detector (optional, lazy)
+        self._wwd: Optional[OpenWakeWordDetector] = None
+        self._wake_word_ack: bool = bool(getattr(cfg, "wake_word_ack", True))
+        self._init_wake_word_detector(cfg)
 
     @staticmethod
     def _phrase_set(raw: Any) -> set[str]:
@@ -102,15 +111,27 @@ class VoiceLoop:
                         self.kernel.shutdown()
                         return
 
+                # Phase 3A: acoustic wake word gate (if detector is active)
+                if self._wwd is not None:
+                    detected = await self._wait_for_wake_word()
+                    if not detected:
+                        # stop_event fired — exit loop
+                        break
+
                 try:
                     self._emit_status("listening", "Recording microphone")
                     if self.vad_enabled:
+                        # B: interrupt TTS the instant speech is detected (before transcription)
+                        def _on_speech_start() -> None:
+                            self._emit_tts_control("tts_interrupt", "speech_start_detected")
+
                         text = await asyncio.to_thread(
                             self._stt.listen_with_vad,
                             self.vad_max_silence_ms,
                             self.vad_min_speech_ms,
                             self.vad_max_duration_s,
                             self._vad_stop,
+                            _on_speech_start,
                         )
                     else:
                         text = await asyncio.to_thread(self._stt.listen_once)
@@ -148,6 +169,8 @@ class VoiceLoop:
 
                 self._emit_status("thinking", "Speech transcribed; waiting for response")
                 self._dispatch_user_text(text, original_text)
+                # A: acknowledge immediately while LLM thinks
+                self._emit_back_channel(text)
 
                 response = await self._wait_for_response()
                 if response:
@@ -233,6 +256,20 @@ class VoiceLoop:
     def _emit_tts_control(self, event_type: str, reason: str) -> None:
         self.kernel.event_bus.emit(
             Event(type=event_type, data={"reason": reason}, source_module="voice_loop"),
+            Priority.REALTIME,
+        )
+
+    def _emit_back_channel(self, user_text: str) -> None:
+        """Emit a short acknowledgment phrase while the LLM is thinking (Feature A)."""
+        if not self.back_channel_enabled or self.muted or self.tts_backend == "none":
+            return
+        phrase = pick_phrase(user_text, self.back_channel_language)
+        self.kernel.event_bus.emit(
+            Event(
+                type="tts_say",
+                data={"text": phrase, "turn_id": "back_channel", "is_back_channel": True},
+                source_module="voice_loop",
+            ),
             Priority.REALTIME,
         )
 
@@ -327,12 +364,60 @@ class VoiceLoop:
             self.kernel.event_bus.emit = self._original_emit  # type: ignore[method-assign]
             self._original_emit = None
 
+    def _init_wake_word_detector(self, cfg) -> None:
+        detector_type = str(getattr(cfg, "wake_word_detector", "none") or "none").strip().lower()
+        if detector_type == "none":
+            return
+        if detector_type != "openwakeword":
+            logger.warning("[Voice] Unknown VOICE_WAKE_WORD_DETECTOR=%r; ignoring", detector_type)
+            return
+        if not OpenWakeWordDetector.is_available():
+            logger.warning(
+                "[Voice] wake_word_detector=openwakeword but openwakeword is not installed. "
+                "Run: pip install openwakeword  (falling back to text-based wake word filter)"
+            )
+            return
+        model = str(getattr(cfg, "wake_word_model", "hey_jarvis") or "hey_jarvis").strip()
+        threshold = float(getattr(cfg, "wake_word_threshold", 0.5))
+        sample_rate = int(getattr(cfg, "sample_rate", 16000))
+        try:
+            self._wwd = OpenWakeWordDetector(model, threshold=threshold, sample_rate=sample_rate)
+            logger.info("[Voice] Acoustic wake word detector ready: model=%s threshold=%.2f", model, threshold)
+        except Exception as exc:
+            logger.error("[Voice] Failed to init wake word detector: %s", exc)
+            self._wwd = None
+
+    async def _wait_for_wake_word(self) -> bool:
+        """Block until acoustic wake word detected. Returns False if loop stopped."""
+        self._emit_status("wake_word_waiting", "Waiting for wake word...")
+        try:
+            detected = await asyncio.to_thread(self._wwd.listen_for_wake_word, self._vad_stop)
+        except WakeWordUnavailable as exc:
+            logger.error("[Voice] Wake word detector unavailable: %s", exc)
+            return True   # degrade gracefully: proceed to full STT anyway
+        except Exception as exc:
+            logger.exception("[Voice] Wake word detection error: %s", exc)
+            return True
+        if detected:
+            self._emit_status("wake_word_detected", "Wake word heard")
+            if self._wake_word_ack and not self.muted and self.tts_backend != "none":
+                self.kernel.event_bus.emit(
+                    Event(
+                        type="tts_say",
+                        data={"text": "Слухаю.", "turn_id": "wake_ack", "is_back_channel": True},
+                        source_module="voice_loop",
+                    ),
+                    Priority.REALTIME,
+                )
+        return detected
+
     def _emit_status(self, state: str, detail: str = "") -> None:
         payload = {
             "state": state,
             "detail": detail,
             "input_mode": self.input_mode,
-            "wake_word_enabled": bool(self.wake_word),
+            "wake_word_enabled": bool(self.wake_word) or self._wwd is not None,
+            "wake_word_acoustic": self._wwd is not None,
             "muted": bool(self.muted),
             "timestamp": time.time(),
         }

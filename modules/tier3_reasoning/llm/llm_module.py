@@ -15,9 +15,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional
+
+# Sentence boundary: punctuation followed by whitespace + uppercase (UK/EN/RU)
+_SENTENCE_END_RE = re.compile(
+    r'(?<=[.!?…])\s+(?=[А-ЯЄІЇЁёA-Z\"\-«])|(?<!\n)\n\n'
+)
 
 from core import CognitiveModule, CognitiveEvent as Event, Priority
 
@@ -50,6 +56,7 @@ class LLMModule(CognitiveModule):
         self._world_context: dict = {}
         self._self_reflection: str = ""
         self._consolidation_context: dict = {}
+        self._user_profile: dict = {}        # Phase 2: injected from UserProfileEngine
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -78,6 +85,7 @@ class LLMModule(CognitiveModule):
                 "sleep_cycle_completed",
                 "dream_narrative",
                 "consolidation_lesson",
+                "user_profile_updated",   # Phase 2: adaptive persona
             ],
         )
 
@@ -124,6 +132,8 @@ class LLMModule(CognitiveModule):
             if isinstance(lessons, list):
                 lessons.append(dict(event.data or {}))
                 self._consolidation_context["recent_lessons"] = lessons[-6:]
+        elif et == "user_profile_updated":
+            self._user_profile = dict(event.data or {})
 
     async def _handle_user_utterance(self, event: Event) -> None:
         text = str(event.data.get("text", "") or "").strip()
@@ -228,12 +238,10 @@ class LLMModule(CognitiveModule):
         self._active_generation += 1
         self._emit_thought(f"[{mode.name}] Context ready. Calling LLM for dialogue response.")
 
+        streamed = False
         try:
-            response = await router.generate(
-                prompt,
-                task_type=task_type,
-                system=system,
-                temperature=0.65,
+            response, streamed = await self._generate_response_streaming(
+                turn, router, prompt, task_type, system
             )
         except Exception as exc:
             logger.error(f"[LLM] generate failed: {exc}")
@@ -258,6 +266,7 @@ class LLMModule(CognitiveModule):
                     "mode": mode.name,
                     "turn_id": turn["turn_id"],
                     "memory_used": self._memory_summary(memory_data),
+                    "streamed": streamed,
                 },
                 source_module=self.module_id,
             ),
@@ -278,6 +287,82 @@ class LLMModule(CognitiveModule):
         )
         logger.info(f"[LLM] response_generated ({mode.name}, {len(response)} chars)")
 
+    async def _generate_response_streaming(
+        self,
+        turn: Dict[str, Any],
+        router,
+        prompt: str,
+        task_type,
+        system: str,
+    ) -> tuple[str, bool]:
+        """Stream tokens from LLM, emit response_part events for real-time TTS.
+
+        Returns (full_response_text, was_streamed).
+        Emits response_part events for each sentence so TTS starts immediately.
+        The last sentence always uses the real turn_id so voice_loop can match it.
+        """
+        turn_id = turn["turn_id"]
+        buffer = ""
+        full_response = ""
+        pending: list[str] = []   # sentences accumulated but not yet emitted
+        part_num = 0
+        streamed = False
+
+        try:
+            async for token in router.generate_stream(
+                prompt, task_type=task_type, system=system, temperature=0.65
+            ):
+                buffer += token
+                full_response += token
+                sentences = [s.strip() for s in _SENTENCE_END_RE.split(buffer) if s.strip()]
+                if len(sentences) > 1:
+                    # Everything before the last fragment is a complete sentence
+                    complete = sentences[:-1]
+                    buffer = sentences[-1]
+                    pending.extend(complete)
+                    streamed = True
+                    # Emit all pending except the last (hold it until next boundary)
+                    while len(pending) > 1:
+                        sentence = pending.pop(0)
+                        self._emit_part(sentence, f"{turn_id}_s{part_num}", part_num == 0)
+                        part_num += 1
+
+        except Exception as exc:
+            logger.warning(f"[LLM] generate_stream error ({exc}); falling back to blocking generate")
+            try:
+                full_response = await router.generate(
+                    prompt, task_type=task_type, system=system, temperature=0.65
+                )
+            except Exception as exc2:
+                full_response = f"I encountered an issue: {exc2}"
+            buffer = full_response
+            pending = []
+            streamed = False
+
+        # Streaming complete: emit final sentence with REAL turn_id (voice_loop matches this)
+        final_text = (" ".join(pending) + " " + buffer).strip() if pending else buffer.strip()
+        if final_text:
+            self._emit_part(final_text, turn_id, part_num == 0)
+            streamed = True
+        elif not streamed:
+            # No streaming happened at all (non-streaming fallback, no partial sentences)
+            pass
+
+        return full_response or final_text, streamed
+
+    def _emit_part(self, text: str, turn_id: str, is_first: bool) -> None:
+        """Emit a response_part event for real-time TTS consumption."""
+        if not self.kernel or not text:
+            return
+        self.kernel.event_bus.emit(
+            Event(
+                type="response_part",
+                data={"text": text, "turn_id": turn_id, "is_first_part": is_first},
+                source_module=self.module_id,
+            ),
+            Priority.COGNITIVE,
+        )
+
     def _build_system_prompt(self) -> str:
         name = self._self_context.get("identity_name", "Jarvis")
         role = self._self_context.get("role", "personal cognitive assistant")
@@ -287,7 +372,7 @@ class LLMModule(CognitiveModule):
         principles = self._self_context.get("operating_principles") or []
         limits_text = "; ".join(map(str, limits[:4])) if isinstance(limits, list) else str(limits)[:400]
         principles_text = "; ".join(map(str, principles[:4])) if isinstance(principles, list) else str(principles)[:400]
-        return (
+        prompt = (
             f"You are {name}, a {role}. Communication style: {style}. Current adaptive style: {affect_style}. "
             "You are not a stateless chatbot: you are the language/reasoning cortex inside a persistent modular brain. "
             f"Operating principles: {principles_text}. Real limitations: {limits_text}. "
@@ -297,6 +382,27 @@ class LLMModule(CognitiveModule):
             "Be practical, concise, and honest about uncertainty. "
             "For technical work, prefer concrete steps and exact commands."
         )
+
+        # Phase 2 — User-adaptive persona injection
+        p = self._user_profile
+        if p:
+            user_name = str(p.get("name") or "").strip()
+            notes = str(p.get("persona_notes") or "").strip()
+            interests = p.get("interests") or []
+            convs = int((p.get("relationship") or {}).get("total_conversations") or 0)
+
+            if user_name:
+                prompt += f" You are talking with {user_name}."
+            if notes:
+                prompt += f" Communication style you have learned about them: {notes}."
+            if interests:
+                prompt += f" Their known interests: {', '.join(str(i) for i in interests[:4])}."
+            if convs > 10:
+                refs = (self._self_context or {}).get("shared_references") or []
+                if refs:
+                    prompt += f" Shared context between you two: {', '.join(str(r) for r in refs[:3])}."
+
+        return prompt
 
     def _build_dialogue_prompt(self, user_text: str, memory_data: Dict[str, Any]) -> str:
         sections: List[str] = []
@@ -336,6 +442,17 @@ class LLMModule(CognitiveModule):
         profile = memory_data.get("social_profile")
         if profile:
             sections.append("User profile memory:\n" + str(profile)[:700])
+
+        # Phase 2: relationship context hint
+        depth = float((self._self_context or {}).get("relationship_depth") or 0.0)
+        convs = int((self._user_profile.get("relationship") or {}).get("total_conversations") or 0)
+        if depth > 0.3 and convs > 5:
+            user_name = str(self._user_profile.get("name") or "").strip()
+            name_part = f" with {user_name}" if user_name else ""
+            sections.append(
+                f"[You have shared history{name_part}. {convs} conversations so far. "
+                "Feel free to reference shared context naturally — no need to be formally introductory.]"
+            )
 
         sections.append("Current user message:\n" + user_text)
         sections.append(

@@ -9,7 +9,7 @@ import logging
 import tempfile
 import wave
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger("voice.stt")
 
@@ -132,8 +132,13 @@ class FasterWhisperSTT:
         min_speech_ms: int = 150,
         max_duration_s: float = 30.0,
         stop_event=None,
+        on_speech_start: Optional[Callable[[], None]] = None,
     ) -> str:
-        """Stream mic; stop when speech ends. Returns empty string on silence/stop."""
+        """Stream mic; stop when speech ends. Returns empty string on silence/stop.
+
+        on_speech_start: called once on first detected speech frame (before transcription).
+                         Use this to interrupt TTS immediately when the user starts talking.
+        """
         import queue as _q
         import numpy as np  # type: ignore
         import sounddevice as sd  # type: ignore
@@ -153,6 +158,7 @@ class FasterWhisperSTT:
         speech_count = 0
         silence_count = 0
         in_speech = False
+        _speech_start_fired = False
 
         with sd.InputStream(
             samplerate=self.sample_rate,
@@ -171,6 +177,12 @@ class FasterWhisperSTT:
                 rms = float(np.sqrt(np.mean(np.square(chunk)))) if chunk.size else 0.0
                 is_speech = rms > self.energy_threshold
                 if is_speech:
+                    if not _speech_start_fired and on_speech_start is not None:
+                        _speech_start_fired = True
+                        try:
+                            on_speech_start()
+                        except Exception:
+                            pass
                     in_speech = True
                     silence_count = 0
                     speech_count += 1

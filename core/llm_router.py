@@ -19,7 +19,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -60,6 +60,13 @@ class LLMProvider(ABC):
 
     @abstractmethod
     async def generate(self, prompt: str, system: str = "", **kwargs) -> str: ...
+
+    async def generate_stream(
+        self, prompt: str, system: str = "", **kwargs
+    ) -> AsyncGenerator[str, None]:
+        """Yield text tokens as they are generated. Default: yield full response as one chunk."""
+        result = await self.generate(prompt, system=system, **kwargs)
+        yield result
 
     async def imagine(self, seed: str, context: dict) -> List[dict]:
         """Generate competing theories.  Returns list of Theory-like dicts."""
@@ -220,6 +227,73 @@ class OllamaProvider(LLMProvider):
             logger.error(f"[Ollama] generate failed: {exc}")
             return f"[Ollama error: {exc}]"
 
+    async def generate_stream(
+        self, prompt: str, system: str = "", **kwargs
+    ) -> AsyncGenerator[str, None]:
+        """True token streaming via Ollama /api/generate with stream=True."""
+        if not self.is_available:
+            yield f"[Ollama unavailable: {self.last_error or 'provider is not available'}]"
+            return
+        try:
+            import urllib.request
+            payload = json.dumps({
+                "model": self._model,
+                "prompt": prompt,
+                "system": system,
+                "stream": True,
+                "options": {"temperature": kwargs.get("temperature", 0.7)},
+            }).encode()
+            req = urllib.request.Request(
+                f"{self._host}/api/generate",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            loop = asyncio.get_event_loop()
+            # Collect chunks in an async-friendly way via executor + queue
+            import queue as _q
+            chunk_queue: _q.Queue = _q.Queue()
+
+            def _stream_to_queue():
+                try:
+                    with urllib.request.urlopen(req, timeout=self._timeout) as r:
+                        for raw_line in r:
+                            line = raw_line.decode("utf-8", errors="replace").strip()
+                            if line:
+                                chunk_queue.put(line)
+                except Exception as exc:
+                    chunk_queue.put(f"__ERROR__:{exc}")
+                finally:
+                    chunk_queue.put(None)  # sentinel
+
+            fut = loop.run_in_executor(None, _stream_to_queue)
+            while True:
+                try:
+                    line = await loop.run_in_executor(None, lambda: chunk_queue.get(timeout=0.05))
+                except Exception:
+                    await asyncio.sleep(0.01)
+                    continue
+                if line is None:
+                    break
+                if isinstance(line, str) and line.startswith("__ERROR__:"):
+                    logger.error("[Ollama] stream error: %s", line[10:])
+                    break
+                try:
+                    data = json.loads(line)
+                    token = data.get("response", "")
+                    if token:
+                        yield token
+                    if data.get("done"):
+                        break
+                except json.JSONDecodeError:
+                    pass
+            await fut
+        except Exception as exc:
+            self._available = None
+            self.last_error = str(exc)
+            logger.error(f"[Ollama] generate_stream failed: {exc}")
+            yield f"[Ollama error: {exc}]"
+
 
 # ---------------------------------------------------------------------------
 # OpenAICompatibleProvider — OpenAI, LM Studio, vLLM, etc.
@@ -277,6 +351,30 @@ class OpenAICompatibleProvider(LLMProvider):
             logger.error(f"[OpenAI] generate failed: {exc}")
             return f"[OpenAI error: {exc}]"
 
+    async def generate_stream(
+        self, prompt: str, system: str = "", **kwargs
+    ) -> AsyncGenerator[str, None]:
+        try:
+            client = self._get_client()
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+            stream = await client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                max_tokens=kwargs.get("max_tokens", 2048),
+                temperature=kwargs.get("temperature", 0.7),
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    yield delta
+        except Exception as exc:
+            logger.error(f"[OpenAI] generate_stream failed: {exc}")
+            yield f"[OpenAI error: {exc}]"
+
 
 # ---------------------------------------------------------------------------
 # GeminiProvider
@@ -322,6 +420,45 @@ class GeminiProvider(LLMProvider):
         except Exception as exc:
             logger.error(f"[Gemini] generate failed: {exc}")
             return f"[Gemini error: {exc}]"
+
+    async def generate_stream(
+        self, prompt: str, system: str = "", **kwargs
+    ) -> AsyncGenerator[str, None]:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=self._api_key)
+            model = genai.GenerativeModel(self._model, system_instruction=system or None)
+            loop = asyncio.get_event_loop()
+            import queue as _q
+            chunk_queue: _q.Queue = _q.Queue()
+
+            def _stream_to_queue():
+                try:
+                    for chunk in model.generate_content(prompt, stream=True):
+                        chunk_queue.put(chunk.text or "")
+                except Exception as exc:
+                    chunk_queue.put(f"__ERROR__:{exc}")
+                finally:
+                    chunk_queue.put(None)
+
+            fut = loop.run_in_executor(None, _stream_to_queue)
+            while True:
+                try:
+                    token = await loop.run_in_executor(None, lambda: chunk_queue.get(timeout=0.05))
+                except Exception:
+                    await asyncio.sleep(0.01)
+                    continue
+                if token is None:
+                    break
+                if isinstance(token, str) and token.startswith("__ERROR__:"):
+                    logger.error("[Gemini] stream error: %s", token[10:])
+                    break
+                if token:
+                    yield token
+            await fut
+        except Exception as exc:
+            logger.error(f"[Gemini] generate_stream failed: {exc}")
+            yield f"[Gemini error: {exc}]"
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +510,26 @@ class AnthropicProvider(LLMProvider):
             logger.error(f"[Anthropic] generate failed: {exc}")
             return f"[Anthropic error: {exc}]"
 
+    async def generate_stream(
+        self, prompt: str, system: str = "", **kwargs
+    ) -> AsyncGenerator[str, None]:
+        try:
+            client = self._get_client()
+            kwargs_msg: Dict[str, Any] = {
+                "model": self._model,
+                "max_tokens": kwargs.get("max_tokens", 2048),
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            if system:
+                kwargs_msg["system"] = system
+            async with client.messages.stream(**kwargs_msg) as stream:
+                async for token in stream.text_stream:
+                    if token:
+                        yield token
+        except Exception as exc:
+            logger.error(f"[Anthropic] generate_stream failed: {exc}")
+            yield f"[Anthropic error: {exc}]"
+
 
 # ---------------------------------------------------------------------------
 # LlamaCppProvider — llama.cpp HTTP server
@@ -423,6 +580,67 @@ class LlamaCppProvider(LLMProvider):
         except Exception as exc:
             logger.error(f"[LlamaCpp] generate failed: {exc}")
             return f"[LlamaCpp error: {exc}]"
+
+    async def generate_stream(
+        self, prompt: str, system: str = "", **kwargs
+    ) -> AsyncGenerator[str, None]:
+        try:
+            import urllib.request
+            full = f"{system}\n\n{prompt}" if system else prompt
+            payload = json.dumps({
+                "prompt": full,
+                "n_predict": kwargs.get("max_tokens", 1024),
+                "temperature": kwargs.get("temperature", 0.7),
+                "stream": True,
+                "stop": kwargs.get("stop", []),
+            }).encode()
+            req = urllib.request.Request(
+                f"{self._host}/completion",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            loop = asyncio.get_event_loop()
+            import queue as _q
+            chunk_queue: _q.Queue = _q.Queue()
+
+            def _stream_to_queue():
+                try:
+                    with urllib.request.urlopen(req, timeout=self._timeout) as r:
+                        for raw_line in r:
+                            line = raw_line.decode("utf-8", errors="replace").strip()
+                            if line.startswith("data:"):
+                                chunk_queue.put(line[5:].strip())
+                except Exception as exc:
+                    chunk_queue.put(f"__ERROR__:{exc}")
+                finally:
+                    chunk_queue.put(None)
+
+            fut = loop.run_in_executor(None, _stream_to_queue)
+            while True:
+                try:
+                    line = await loop.run_in_executor(None, lambda: chunk_queue.get(timeout=0.05))
+                except Exception:
+                    await asyncio.sleep(0.01)
+                    continue
+                if line is None:
+                    break
+                if isinstance(line, str) and line.startswith("__ERROR__:"):
+                    logger.error("[LlamaCpp] stream error: %s", line[10:])
+                    break
+                try:
+                    data = json.loads(line)
+                    token = data.get("content", "")
+                    if token:
+                        yield token
+                    if data.get("stop"):
+                        break
+                except json.JSONDecodeError:
+                    pass
+            await fut
+        except Exception as exc:
+            logger.error(f"[LlamaCpp] generate_stream failed: {exc}")
+            yield f"[LlamaCpp error: {exc}]"
 
 
 # ---------------------------------------------------------------------------
@@ -791,6 +1009,19 @@ class LLMRouter:
         provider = self.route(task_type)
         logger.debug("[LLMRouter] %s → %s", task_type.value, provider.name)
         return await provider.generate(prompt, system=system, **kwargs)
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        task_type: TaskType = TaskType.SIMPLE_CHAT,
+        system: str = "",
+        **kwargs,
+    ) -> AsyncGenerator[str, None]:
+        """Stream tokens from the routed provider. Falls back to full generate if not supported."""
+        provider = self.route(task_type)
+        logger.debug("[LLMRouter] stream %s → %s", task_type.value, provider.name)
+        async for token in provider.generate_stream(prompt, system=system, **kwargs):
+            yield token
 
     async def imagine(self, seed: str, context: dict,
                       task_type: TaskType = TaskType.CREATIVE_IMAGINATION) -> List[dict]:

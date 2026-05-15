@@ -14,6 +14,20 @@ numpy
 faster-whisper
 pyttsx3
 
+# Phase 3A — Acoustic Wake Word Detection (free, local, CPU-only)
+# Enables "Hey Jarvis" style always-on detection before STT runs.
+# 1. Install: pip install openwakeword
+# 2. Download model: python -c "from openwakeword.utils import download_models; download_models(['hey_jarvis'])"
+# 3. Enable in .env: VOICE_WAKE_WORD_DETECTOR=openwakeword  VOICE_WAKE_WORD_MODEL=hey_jarvis
+#    pip install openwakeword
+
+# High-quality neural TTS — Phase 4 (install whichever you want to use)
+# Option A: XTTS v2 — local, voice cloning, Ukrainian support (~1.8 GB model auto-downloaded)
+#   pip install TTS
+# Option B: ElevenLabs — cloud, streaming, ~400ms latency (requires API key)
+#   pip install elevenlabs>=1.0
+# Note: sounddevice (already above) is required for both options
+
 # V3/V9.6 Screen Reading + GUI Understanding MVP
 mss
 Pillow

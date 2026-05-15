@@ -248,7 +248,7 @@ class VoiceConfig:
     tts_enabled: bool = field(default_factory=lambda: os.environ.get("VOICE_TTS_ENABLED", "true").lower() == "true")
     start_muted: bool = field(default_factory=lambda: os.environ.get("VOICE_START_MUTED", "false").lower() == "true")
     status_file: str = field(default_factory=lambda: os.environ.get("VOICE_STATUS_FILE", ""))
-    tts_backend: str = field(default_factory=lambda: os.environ.get("VOICE_TTS_BACKEND", "auto"))  # auto|piper|pyttsx3|none
+    tts_backend: str = field(default_factory=lambda: os.environ.get("VOICE_TTS_BACKEND", "auto"))  # auto|elevenlabs|xtts|piper|pyttsx3|none
 
     # Piper TTS
     piper_executable: str = field(default_factory=lambda: os.environ.get("PIPER_EXECUTABLE", "piper"))
@@ -264,6 +264,40 @@ class VoiceConfig:
     pyttsx3_voice_id: str = field(default_factory=lambda: os.environ.get("PYTTSX3_VOICE_ID", ""))
     pyttsx3_rate: int = field(default_factory=lambda: int(os.environ.get("PYTTSX3_RATE", "175")))
     pyttsx3_volume: float = field(default_factory=lambda: float(os.environ.get("PYTTSX3_VOLUME", "1.0")))
+
+    # Back-channel responses (short acknowledgments while LLM is thinking)
+    back_channel_enabled: bool = field(default_factory=lambda: os.environ.get("VOICE_BACK_CHANNEL", "true").lower() == "true")
+    back_channel_language: str = field(default_factory=lambda: os.environ.get("VOICE_BACK_CHANNEL_LANG", "uk"))
+
+    # Acoustic wake word detection — openWakeWord (free, local, CPU-only)
+    # Set VOICE_WAKE_WORD_DETECTOR=openwakeword and download a model to enable.
+    # Model can be a community model name ("hey_jarvis") or an absolute .tflite/.onnx path.
+    wake_word_detector: str = field(default_factory=lambda: os.environ.get("VOICE_WAKE_WORD_DETECTOR", "none").strip().lower())
+    wake_word_model: str = field(default_factory=lambda: os.environ.get("VOICE_WAKE_WORD_MODEL", "hey_jarvis"))
+    wake_word_threshold: float = field(default_factory=lambda: float(os.environ.get("VOICE_WAKE_WORD_THRESHOLD", "0.5")))
+    wake_word_ack: bool = field(default_factory=lambda: os.environ.get("VOICE_WAKE_WORD_ACK", "true").lower() == "true")
+
+    # Phase 3C — Emotional Voice Modulation
+    # Emotion (arousal/frustration) and hormones (cortisol/oxytocin/adrenaline) modulate
+    # TTS speed and stability in real time. strength=0 disables, strength=1 is full effect.
+    emotional_tts_enabled: bool = field(default_factory=lambda: os.environ.get("VOICE_EMOTIONAL_TTS", "true").lower() == "true")
+    emotional_tts_strength: float = field(default_factory=lambda: float(os.environ.get("VOICE_EMOTIONAL_TTS_STRENGTH", "1.0")))
+
+    # XTTS v2 — Coqui local neural TTS (pip install TTS)
+    # Supports voice cloning from a 6+ sec WAV sample, Ukrainian language natively
+    xtts_model: str = field(default_factory=lambda: os.environ.get("JAV_XTTS_MODEL", "tts_models/multilingual/multi-dataset/xtts_v2"))
+    xtts_speaker_wav: str = field(default_factory=lambda: os.environ.get("JAV_XTTS_SPEAKER_WAV", ""))
+    xtts_language: str = field(default_factory=lambda: os.environ.get("JAV_XTTS_LANGUAGE", "uk"))
+    xtts_device: str = field(default_factory=lambda: os.environ.get("JAV_XTTS_DEVICE", "auto"))
+
+    # ElevenLabs — cloud premium TTS (pip install elevenlabs)
+    # Lowest latency cloud option (~400ms to first audio), streaming supported
+    elevenlabs_api_key: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", ""))
+    elevenlabs_voice_id: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_VOICE_ID", "Rachel"))
+    elevenlabs_model: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"))
+    elevenlabs_streaming: bool = field(default_factory=lambda: os.environ.get("ELEVENLABS_STREAMING", "true").lower() == "true")
+    elevenlabs_stability: float = field(default_factory=lambda: float(os.environ.get("ELEVENLABS_STABILITY", "0.5")))
+    elevenlabs_similarity: float = field(default_factory=lambda: float(os.environ.get("ELEVENLABS_SIMILARITY", "0.75")))
 
 
 @dataclass
@@ -290,7 +324,29 @@ class ScreenConfig:
     max_ui_elements: int = field(default_factory=lambda: int(os.environ.get("SCREEN_MAX_UI_ELEMENTS", "40")))
     min_ui_confidence: int = field(default_factory=lambda: int(os.environ.get("SCREEN_MIN_UI_CONFIDENCE", "35")))
 
+    # Phase 3B — Ambient Perception (requires auto_watch_enabled=true)
+    ambient_watch_interval: float = field(default_factory=lambda: float(os.environ.get("SCREEN_AMBIENT_INTERVAL", "8.0")))
+    ambient_min_gap_after_speech: float = field(default_factory=lambda: float(os.environ.get("SCREEN_AMBIENT_SPEECH_GAP", "3.0")))
+    ambient_proactive: bool = field(default_factory=lambda: os.environ.get("SCREEN_AMBIENT_PROACTIVE", "true").lower() == "true")
 
+
+
+
+@dataclass
+class PersonaConfig:
+    """Phase 2 — adaptive character that grows with the user.
+
+    UserProfileEngine learns who the user is (name, language, style, interests).
+    PersonaEvolution tracks relationship depth and shared references.
+    Both are fully local — data stays in ~/.jarvis_brain/user_profile.json.
+    """
+    enabled: bool = field(default_factory=lambda: _env_bool("PERSONA_ENABLED", "true"))
+    auto_extract_name: bool = field(default_factory=lambda: _env_bool("PERSONA_AUTO_EXTRACT_NAME", "true"))
+    persona_name: str = field(default_factory=lambda: os.environ.get("PERSONA_NAME", ""))
+    persona_notes_update_every: int = field(default_factory=lambda: int(os.environ.get("PERSONA_NOTES_UPDATE_EVERY", "5")))
+    relationship_depth_increment: float = field(default_factory=lambda: float(os.environ.get("PERSONA_DEPTH_INCREMENT", "0.001")))
+    max_shared_references: int = field(default_factory=lambda: int(os.environ.get("PERSONA_MAX_SHARED_REFS", "20")))
+    max_evolution_log: int = field(default_factory=lambda: int(os.environ.get("PERSONA_MAX_EVOLUTION_LOG", "5")))
 
 
 @dataclass
@@ -613,6 +669,11 @@ class KernelConfig:
     # ------------------------------------------------------------------
     self_model: SelfModelConfig = field(default_factory=SelfModelConfig)
     world_model: WorldModelConfig = field(default_factory=WorldModelConfig)
+
+    # ------------------------------------------------------------------
+    # Phase 2 — adaptive persona (UserProfileEngine + PersonaEvolution)
+    # ------------------------------------------------------------------
+    persona: PersonaConfig = field(default_factory=PersonaConfig)
 
 
     # ------------------------------------------------------------------

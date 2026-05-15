@@ -113,6 +113,16 @@ class ScreenParserModule(CognitiveModule):
         self.max_ui_elements = 40
         self.min_ui_confidence = 35
         self.last_result: Dict[str, Any] = {}
+        # Phase 3B — ambient watch state
+        self._ambient_interval: float = 8.0
+        self._ambient_speech_gap: float = 3.0
+        self._ambient_proactive: bool = True
+        self._last_ambient_ts: float = 0.0
+        self._last_user_speech_ts: float = 0.0
+        self._ambient_pending: bool = False
+        self._last_ctx: str = ""
+        self._last_window: str = ""
+        self._last_errors: List[str] = []
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -131,6 +141,9 @@ class ScreenParserModule(CognitiveModule):
             self.active_window_enabled = bool(getattr(screen_cfg, "active_window_enabled", True))
             self.max_ui_elements = int(getattr(screen_cfg, "max_ui_elements", 40) or 40)
             self.min_ui_confidence = int(getattr(screen_cfg, "min_ui_confidence", 35) or 35)
+            self._ambient_interval = float(getattr(screen_cfg, "ambient_watch_interval", 8.0))
+            self._ambient_speech_gap = float(getattr(screen_cfg, "ambient_min_gap_after_speech", 3.0))
+            self._ambient_proactive = bool(getattr(screen_cfg, "ambient_proactive", True))
 
         kernel.event_bus.register_consumer(
             self.module_id,
@@ -140,6 +153,7 @@ class ScreenParserModule(CognitiveModule):
                 "screen_understand_requested",
                 "gui_understanding_requested",
                 "screen_focus",
+                "user_utterance",
             ],
         )
         logger.info("[ScreenParser] V9.6 screen/GUI understanding module initialized")
@@ -147,14 +161,34 @@ class ScreenParserModule(CognitiveModule):
     async def on_event(self, event: Event) -> None:
         if event.type in {"screen_capture_requested", "screen_read_requested", "screen_understand_requested", "gui_understanding_requested"}:
             result = self._read_screen(event)
+            if event.data.get("reason") == "ambient_perception":
+                self._ambient_pending = False
+                self._check_ambient_change(result)
             self._emit_result(result, event)
         elif event.type == "screen_focus":
             logger.info("[ScreenParser] screen_focus received")
+        elif event.type == "user_utterance":
+            self._last_user_speech_ts = time.time()
 
     def update(self, dt: float) -> None:
-        # Request-driven by default. Continuous screen watching is intentionally
-        # disabled unless a future permissioned mode enables it.
-        return
+        if not self.auto_watch_enabled or self._ambient_pending:
+            return
+        now = time.time()
+        if now - self._last_user_speech_ts < self._ambient_speech_gap:
+            return
+        if now - self._last_ambient_ts < self._ambient_interval:
+            return
+        self._last_ambient_ts = now
+        self._ambient_pending = True
+        if self.kernel:
+            self.kernel.event_bus.emit(
+                Event(
+                    type="screen_capture_requested",
+                    data={"request_id": f"ambient_{int(now)}", "reason": "ambient_perception", "respond": False},
+                    source_module=self.module_id,
+                ),
+                Priority.BACKGROUND,
+            )
 
     def _read_screen(self, event: Event) -> ScreenReadResult:
         request_id = str(event.data.get("request_id") or f"screen_{int(time.time())}")
@@ -473,6 +507,42 @@ class ScreenParserModule(CognitiveModule):
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
+
+    def _check_ambient_change(self, result: ScreenReadResult) -> None:
+        changed_reasons: List[str] = []
+        if result.active_window != self._last_window:
+            changed_reasons.append("app_switched")
+        if result.likely_context != self._last_ctx:
+            changed_reasons.append("context_changed")
+        new_errors = [e for e in result.important_blocks if e not in self._last_errors]
+        if new_errors:
+            changed_reasons.append("error_detected")
+
+        self._last_window = result.active_window
+        self._last_ctx = result.likely_context
+        self._last_errors = list(result.important_blocks)
+
+        if not changed_reasons or not self._ambient_proactive or not self.kernel:
+            return
+        importance = 0.7 if "error_detected" in changed_reasons else 0.4
+        suggestion = result.recommended_actions[0] if result.recommended_actions else ""
+        self.kernel.event_bus.emit(
+            Event(
+                type="proactive_event",
+                data={
+                    "reason": changed_reasons[0],
+                    "summary": result.summary[:300],
+                    "active_window": result.active_window,
+                    "errors": new_errors[:3],
+                    "suggestion": suggestion,
+                    "importance": importance,
+                    "source": "ambient_perception",
+                },
+                source_module=self.module_id,
+            ),
+            Priority.BACKGROUND,
+        )
+        logger.debug("[ScreenParser] Ambient change: %s importance=%.1f", changed_reasons, importance)
 
     def _emit_result(self, result: ScreenReadResult, parent: Event) -> None:
         if not self.kernel:

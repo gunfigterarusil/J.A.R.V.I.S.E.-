@@ -22,6 +22,7 @@ Listens:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Dict, List
 
@@ -87,15 +88,27 @@ class SelfModelModule(CognitiveModule):
         self.cognitive_maturity: float = 0.45
         self.self_awareness_notes: List[str] = []
 
+        # Phase 2 — PersonaEvolution: character that grows with the user
+        self.persona_name: str = ""                  # empty = use identity_name ("Jarvis")
+        self.adapted_style: str = ""                 # e.g. "direct, light sarcasm, no fluff"
+        self.persona_evolution_log: List[str] = []   # rolling 5 observations about the relationship
+        self.relationship_depth: float = 0.0         # 0-1, grows with every completed turn
+        self.shared_references: List[str] = []       # topics/projects mentioned 3+ times
+
         self._goal_success_count = 0
         self._goal_fail_count = 0
         self._last_snapshot = 0.0
         self._last_reflection = 0.0
         self._last_emotion: Dict[str, Any] = {}
+        self._topic_counts: Dict[str, int] = {}      # for shared_references tracking
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
         self._load()
+        cfg = getattr(getattr(kernel, "config", None), "persona", None)
+        if cfg and getattr(cfg, "persona_name", ""):
+            self.persona_name = str(cfg.persona_name).strip()
+
         kernel.event_bus.register_consumer(
             self.module_id,
             [
@@ -117,6 +130,8 @@ class SelfModelModule(CognitiveModule):
                 "sleep_cycle_completed",
                 "consolidation_lesson",
                 "dream_narrative",
+                "user_profile_updated",   # Phase 2: learn from user profile
+                "user_utterance",         # Phase 2: track topic frequency
             ],
         )
 
@@ -157,6 +172,22 @@ class SelfModelModule(CognitiveModule):
             self.confidence = min(1.0, self.confidence + 0.001)
         elif et == "dialogue_turn_completed":
             self.current_environment["llm_available"] = "yes"
+            # Phase 2: deepen relationship with every completed turn
+            increment = self._cfg_float("relationship_depth_increment", 0.001)
+            self.relationship_depth = min(1.0, self.relationship_depth + increment)
+        elif et == "user_utterance":
+            # Phase 2: track topic frequency for shared_references
+            self._track_topics(str(event.data.get("text", "") or ""))
+        elif et == "user_profile_updated":
+            # Phase 2: update adapted_style from persona_notes
+            notes = str(event.data.get("persona_notes") or "").strip()
+            if notes and notes != self.adapted_style:
+                self.adapted_style = notes
+                log_entry = f"Learned user style: {notes[:120]}"
+                self.persona_evolution_log.append(log_entry)
+                max_log = self._cfg_int("max_evolution_log", 5)
+                self.persona_evolution_log = self.persona_evolution_log[-max_log:]
+                logger.debug("[SelfModel] adapted_style updated")
         elif et == "screen_parsed":
             self.current_environment["screen_available"] = True
             summary = event.data.get("summary") or event.data.get("detected_context") or ""
@@ -195,8 +226,33 @@ class SelfModelModule(CognitiveModule):
             self._emit_reflection()
 
     def _cfg_float(self, name: str, default: float) -> float:
+        # Check persona config first (relationship_depth_increment lives there)
+        cfg_persona = getattr(getattr(self.kernel, "config", None), "persona", None) if self.kernel else None
+        if cfg_persona is not None and hasattr(cfg_persona, name):
+            return float(getattr(cfg_persona, name, default))
         cfg = getattr(getattr(self.kernel, "config", None), "self_model", None) if self.kernel else None
         return float(getattr(cfg, name, default) if cfg is not None else default)
+
+    def _cfg_int(self, name: str, default: int) -> int:
+        cfg_persona = getattr(getattr(self.kernel, "config", None), "persona", None) if self.kernel else None
+        if cfg_persona is not None and hasattr(cfg_persona, name):
+            return int(getattr(cfg_persona, name, default))
+        return default
+
+    def _track_topics(self, text: str) -> None:
+        """Count topic keywords to surface shared references."""
+        if not text:
+            return
+        words = re.findall(r'\b[A-ZА-ЯЄІЇa-zа-яєії][A-ZА-ЯЄІЇa-zа-яєії0-9_\-]{2,24}\b', text)
+        for w in words:
+            self._topic_counts[w] = self._topic_counts.get(w, 0) + 1
+            if self._topic_counts[w] >= 3:
+                ref = w.strip()
+                if ref not in self.shared_references:
+                    max_refs = self._cfg_int("max_shared_references", 20)
+                    if len(self.shared_references) < max_refs:
+                        self.shared_references.append(ref)
+                        logger.debug("[SelfModel] Shared reference detected: %s", ref)
 
     def _refresh_capabilities(self) -> None:
         modules = getattr(self.kernel, "modules", {}) if self.kernel else {}
@@ -271,6 +327,12 @@ class SelfModelModule(CognitiveModule):
             "recent_successes": list(self.recent_successes[-5:]),
             "self_awareness_notes": list(self.self_awareness_notes[-8:]),
             "affective_snapshot": {k: self._last_emotion.get(k) for k in ("emotion", "mood", "confidence", "cognitive_load")},
+            # Phase 2 — PersonaEvolution
+            "persona_name": self.persona_name,
+            "adapted_style": self.adapted_style,
+            "persona_evolution_log": list(self.persona_evolution_log),
+            "relationship_depth": round(self.relationship_depth, 4),
+            "shared_references": list(self.shared_references),
             "timestamp": time.time(),
         }
 
@@ -351,7 +413,13 @@ class SelfModelModule(CognitiveModule):
             self.cognitive_maturity = float(data.get("cognitive_maturity", self.cognitive_maturity) or self.cognitive_maturity)
             self.current_environment.update(data.get("current_environment") or {})
             self.self_awareness_notes = list(data.get("self_awareness_notes") or self.self_awareness_notes)[-12:]
-            logger.info(f"[SelfModelV5] Loaded {self.identity_name} v{self.identity_version}")
+            # Phase 2 — PersonaEvolution
+            self.persona_name = str(data.get("persona_name") or self.persona_name)
+            self.adapted_style = str(data.get("adapted_style") or self.adapted_style)
+            self.persona_evolution_log = list(data.get("persona_evolution_log") or self.persona_evolution_log)[-5:]
+            self.relationship_depth = float(data.get("relationship_depth") or self.relationship_depth)
+            self.shared_references = list(data.get("shared_references") or self.shared_references)[:20]
+            logger.info(f"[SelfModelV5] Loaded {self.identity_name} v{self.identity_version} depth={self.relationship_depth:.3f}")
 
     def to_dict(self) -> Dict[str, Any]:
         base = super().to_dict()
