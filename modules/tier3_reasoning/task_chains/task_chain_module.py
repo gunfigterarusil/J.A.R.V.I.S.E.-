@@ -282,7 +282,7 @@ class TaskChainModule(CognitiveModule):
                 f"KNOWN CONTEXT: {json.dumps(context, ensure_ascii=False)[:2500]}"
             )
             try:
-                raw = await router.generate(prompt, task_type=TaskType.PLANNING, system="You are JAV task planner. Return compact JSON only.")
+                raw = await router.generate(prompt, task_type=TaskType.ACTION_PLANNING, system="You are JAV task planner. Return compact JSON only.")
                 parsed = self._parse_llm_steps(raw)
                 if parsed:
                     return parsed[: self.max_steps]

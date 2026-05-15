@@ -38,6 +38,10 @@ class TaskType(Enum):
     CREATIVE_IMAGINATION = "creative_imagination"
     PLANNING = "planning"
     EMBEDDING = "embedding"
+    CODE_REPAIR = "code_repair"
+    CRITIC_REVIEW = "critic_review"
+    VISION_ANALYSIS = "vision_analysis"
+    ACTION_PLANNING = "action_planning"
 
 
 # ---------------------------------------------------------------------------
@@ -377,116 +381,320 @@ class LlamaCppProvider(LLMProvider):
 
 
 # ---------------------------------------------------------------------------
-# LLMRouter
+# LLMRouter V10 role/profile aware router
 # ---------------------------------------------------------------------------
+
+_MODEL_PROFILES: Dict[str, Dict[str, Dict[str, str]]] = {
+    "offline": {
+        "fast": {"provider": "ollama", "model": "qwen2.5:7b"},
+        "reason": {"provider": "ollama", "model": "llama3.1:8b"},
+        "code": {"provider": "ollama", "model": "qwen2.5-coder:7b"},
+        "critic": {"provider": "ollama", "model": "llama3.1:8b"},
+        "vision": {"provider": "ollama", "model": "llava"},
+        "embedding": {"provider": "ollama", "model": "nomic-embed-text"},
+        "action": {"provider": "ollama", "model": "qwen2.5:7b"},
+    },
+    "balanced": {
+        "fast": {"provider": "ollama", "model": "qwen2.5:7b"},
+        "reason": {"provider": "gemini", "model": "gemini-2.0-flash"},
+        "code": {"provider": "ollama", "model": "qwen2.5-coder:14b"},
+        "critic": {"provider": "gemini", "model": "gemini-2.0-flash"},
+        "vision": {"provider": "gemini", "model": "gemini-2.0-flash"},
+        "embedding": {"provider": "ollama", "model": "nomic-embed-text"},
+        "action": {"provider": "ollama", "model": "qwen2.5:7b"},
+    },
+    "power": {
+        "fast": {"provider": "openai", "model": "gpt-4o-mini"},
+        "reason": {"provider": "openai", "model": "gpt-4o"},
+        "code": {"provider": "openai", "model": "gpt-4o"},
+        "critic": {"provider": "anthropic", "model": "claude-3-5-sonnet-latest"},
+        "vision": {"provider": "openai", "model": "gpt-4o"},
+        "embedding": {"provider": "openai", "model": "text-embedding-3-small"},
+        "action": {"provider": "openai", "model": "gpt-4o-mini"},
+    },
+    "code": {
+        "fast": {"provider": "ollama", "model": "qwen2.5-coder:7b"},
+        "reason": {"provider": "ollama", "model": "qwen2.5-coder:14b"},
+        "code": {"provider": "ollama", "model": "qwen2.5-coder:14b"},
+        "critic": {"provider": "ollama", "model": "qwen2.5-coder:14b"},
+        "vision": {"provider": "ollama", "model": "llava"},
+        "embedding": {"provider": "ollama", "model": "nomic-embed-text"},
+        "action": {"provider": "ollama", "model": "qwen2.5-coder:7b"},
+    },
+    "voice_companion": {
+        "fast": {"provider": "ollama", "model": "qwen2.5:7b"},
+        "reason": {"provider": "ollama", "model": "llama3.1:8b"},
+        "code": {"provider": "ollama", "model": "qwen2.5-coder:7b"},
+        "critic": {"provider": "ollama", "model": "llama3.1:8b"},
+        "vision": {"provider": "ollama", "model": "llava"},
+        "embedding": {"provider": "ollama", "model": "nomic-embed-text"},
+        "action": {"provider": "ollama", "model": "qwen2.5:7b"},
+    },
+}
+
+_TASK_ROLE: Dict[TaskType, str] = {
+    TaskType.SIMPLE_CHAT: "fast",
+    TaskType.COMPLEX_REASONING: "reason",
+    TaskType.CREATIVE_IMAGINATION: "reason",
+    TaskType.SUMMARIZATION: "fast",
+    TaskType.MEMORY_COMPRESSION: "fast",
+    TaskType.PLANNING: "action",
+    TaskType.ACTION_PLANNING: "action",
+    TaskType.CODE_REPAIR: "code",
+    TaskType.CRITIC_REVIEW: "critic",
+    TaskType.VISION_ANALYSIS: "vision",
+    TaskType.EMBEDDING: "embedding",
+}
+
 _DEFAULT_ROUTING = {
-    TaskType.SIMPLE_CHAT: ["ollama", "openai", "gemini", "anthropic", "llamacpp"],
-    TaskType.COMPLEX_REASONING: ["ollama", "anthropic", "openai", "gemini", "llamacpp"],
-    TaskType.CREATIVE_IMAGINATION: ["ollama", "anthropic", "openai", "gemini", "llamacpp"],
-    TaskType.PLANNING: ["ollama", "openai", "anthropic", "gemini", "llamacpp"],
-    TaskType.SUMMARIZATION: ["ollama", "openai", "gemini", "anthropic", "llamacpp"],
-    TaskType.MEMORY_COMPRESSION: ["ollama", "openai", "gemini", "llamacpp"],
-    TaskType.EMBEDDING: ["openai", "ollama"],
+    TaskType.SIMPLE_CHAT: ["fast", "ollama", "openai", "gemini", "anthropic", "llamacpp"],
+    TaskType.COMPLEX_REASONING: ["reason", "ollama", "anthropic", "openai", "gemini", "llamacpp"],
+    TaskType.CREATIVE_IMAGINATION: ["reason", "ollama", "anthropic", "openai", "gemini", "llamacpp"],
+    TaskType.PLANNING: ["action", "ollama", "openai", "anthropic", "gemini", "llamacpp"],
+    TaskType.ACTION_PLANNING: ["action", "ollama", "openai", "anthropic", "gemini", "llamacpp"],
+    TaskType.CODE_REPAIR: ["code", "ollama", "openai", "anthropic", "gemini", "llamacpp"],
+    TaskType.CRITIC_REVIEW: ["critic", "anthropic", "openai", "gemini", "ollama", "llamacpp"],
+    TaskType.VISION_ANALYSIS: ["vision", "openai", "gemini", "ollama"],
+    TaskType.SUMMARIZATION: ["fast", "ollama", "openai", "gemini", "anthropic", "llamacpp"],
+    TaskType.MEMORY_COMPRESSION: ["fast", "ollama", "openai", "gemini", "llamacpp"],
+    TaskType.EMBEDDING: ["embedding", "ollama", "openai"],
 }
 
 
 class LLMRouter:
-    """Routes LLM calls to the best available provider for each task type."""
+    """Routes AI calls by cognitive role and provider profile.
+
+    V10 keeps the old TaskType interface, but maps each task to a role:
+    fast/reason/code/critic/vision/embedding/action. Each role can use a
+    different provider/API/model and will fall back to other available backends.
+    """
 
     def __init__(self, config: Any = None) -> None:
         self._providers: Dict[str, LLMProvider] = {}
+        self._provider_meta: Dict[str, Dict[str, Any]] = {}
+        self._role_provider_keys: Dict[str, str] = {}
         self._null = NullProvider()
-        self._routing: Dict[TaskType, List[str]] = dict(_DEFAULT_ROUTING)
+        self._routing: Dict[TaskType, List[str]] = {k: list(v) for k, v in _DEFAULT_ROUTING.items()}
         self._config = config
+        self._profile_name = "offline"
         self._setup_from_config(config)
 
     def _setup_from_config(self, config: Any) -> None:
         if config is None:
+            self.register_provider("null", self._null, role="fallback", provider_type="null", model="null")
             return
-        # Ollama
-        ollama_model = getattr(config, "ollama_model", "llama3.2")
-        ollama_host = getattr(config, "ollama_host", "http://localhost:11434")
-        self.register_provider("ollama", OllamaProvider(ollama_host, ollama_model))
 
-        # OpenAI-compatible
+        self._profile_name = str(getattr(config, "model_profile", "offline") or "offline").lower().strip()
+        profile = dict(_MODEL_PROFILES.get(self._profile_name, _MODEL_PROFILES["offline"]))
+
+        # Merge explicit role overrides from env/config.
+        for role in ("fast", "reason", "code", "critic", "vision", "embedding", "action"):
+            provider_override = str(getattr(config, f"{role}_provider", "") or "").strip().lower()
+            model_override = str(getattr(config, f"{role}_model", "") or "").strip()
+            role_spec = dict(profile.get(role, {}))
+            if provider_override:
+                role_spec["provider"] = provider_override
+            if model_override:
+                role_spec["model"] = model_override
+            profile[role] = role_spec
+
+        # Legacy base providers remain registered as generic fallbacks.
+        self.register_provider("ollama", OllamaProvider(
+            getattr(config, "ollama_host", "http://localhost:11434"),
+            getattr(config, "ollama_model", "llama3.2"),
+            getattr(config, "default_timeout", 60.0),
+        ), role="fallback", provider_type="ollama", model=getattr(config, "ollama_model", "llama3.2"))
+
         openai_key = getattr(config, "openai_api_key", "")
         if openai_key:
             self.register_provider("openai", OpenAICompatibleProvider(
                 api_key=openai_key,
                 model=getattr(config, "openai_model", "gpt-4o"),
                 base_url=getattr(config, "openai_base_url", "https://api.openai.com/v1"),
-            ))
+                timeout=getattr(config, "default_timeout", 60.0),
+            ), role="fallback", provider_type="openai", model=getattr(config, "openai_model", "gpt-4o"))
 
-        # Gemini
         gemini_key = getattr(config, "gemini_api_key", "")
         if gemini_key:
             self.register_provider("gemini", GeminiProvider(
                 api_key=gemini_key,
                 model=getattr(config, "gemini_model", "gemini-2.0-flash"),
-            ))
+                timeout=getattr(config, "default_timeout", 60.0),
+            ), role="fallback", provider_type="gemini", model=getattr(config, "gemini_model", "gemini-2.0-flash"))
 
-        # Anthropic
         anthropic_key = getattr(config, "anthropic_api_key", "")
         if anthropic_key:
             self.register_provider("anthropic", AnthropicProvider(
                 api_key=anthropic_key,
-                model=getattr(config, "anthropic_model", "claude-sonnet-4-6"),
-            ))
+                model=getattr(config, "anthropic_model", "claude-3-5-sonnet-latest"),
+                timeout=getattr(config, "default_timeout", 60.0),
+            ), role="fallback", provider_type="anthropic", model=getattr(config, "anthropic_model", "claude-3-5-sonnet-latest"))
 
-        # llama.cpp
-        llamacpp_host = getattr(config, "llamacpp_host", "http://localhost:8080")
-        self.register_provider("llamacpp", LlamaCppProvider(llamacpp_host))
+        self.register_provider("llamacpp", LlamaCppProvider(
+            getattr(config, "llamacpp_host", "http://localhost:8080"),
+            getattr(config, "default_timeout", 60.0),
+        ), role="fallback", provider_type="llamacpp", model="server-default")
 
-        # Override routing if config specifies preferred providers per task
-        routing_cfg = getattr(config, "routing", {})
+        # Role-specific provider instances allow different models per role.
+        for role, spec in profile.items():
+            key = self._make_role_provider(role, spec, config)
+            if key:
+                self._role_provider_keys[role] = key
+
+        # Make role aliases route to concrete role provider keys.
+        for task, role in _TASK_ROLE.items():
+            key = self._role_provider_keys.get(role)
+            if key:
+                current = [p for p in self._routing.get(task, []) if p not in {role, key}]
+                self._routing[task] = [key] + current
+
+        # Override routing if config specifies preferred providers per task.
+        routing_cfg = getattr(config, "routing", {}) or {}
         for task_str, provider_name in routing_cfg.items():
             try:
                 task = TaskType(task_str)
-                self._routing[task] = [provider_name] + [
-                    p for p in self._routing.get(task, []) if p != provider_name
-                ]
+                self._routing[task] = [provider_name] + [p for p in self._routing.get(task, []) if p != provider_name]
             except ValueError:
                 pass
 
-    def register_provider(self, name: str, provider: LLMProvider) -> None:
+        self.register_provider("null", self._null, role="fallback", provider_type="null", model="null")
+
+    def _make_role_provider(self, role: str, spec: Dict[str, str], config: Any) -> Optional[str]:
+        provider_type = str(spec.get("provider", "") or "").strip().lower()
+        model = str(spec.get("model", "") or "").strip()
+        if not provider_type or provider_type == "null":
+            return None
+        key = f"role:{role}:{provider_type}"
+        try:
+            if provider_type == "ollama":
+                provider = OllamaProvider(getattr(config, "ollama_host", "http://localhost:11434"), model or getattr(config, "ollama_model", "llama3.2"), getattr(config, "default_timeout", 60.0))
+            elif provider_type == "openai":
+                api_key = getattr(config, "openai_api_key", "")
+                if not api_key:
+                    return None
+                provider = OpenAICompatibleProvider(api_key, model or getattr(config, "openai_model", "gpt-4o"), getattr(config, "openai_base_url", "https://api.openai.com/v1"), getattr(config, "default_timeout", 60.0))
+            elif provider_type == "gemini":
+                api_key = getattr(config, "gemini_api_key", "")
+                if not api_key:
+                    return None
+                provider = GeminiProvider(api_key, model or getattr(config, "gemini_model", "gemini-2.0-flash"), getattr(config, "default_timeout", 60.0))
+            elif provider_type == "anthropic":
+                api_key = getattr(config, "anthropic_api_key", "")
+                if not api_key:
+                    return None
+                provider = AnthropicProvider(api_key, model or getattr(config, "anthropic_model", "claude-3-5-sonnet-latest"), getattr(config, "default_timeout", 60.0))
+            elif provider_type == "llamacpp":
+                provider = LlamaCppProvider(getattr(config, "llamacpp_host", "http://localhost:8080"), getattr(config, "default_timeout", 60.0))
+            else:
+                logger.warning("[LLMRouter] Unknown provider type for role %s: %s", role, provider_type)
+                return None
+            self.register_provider(key, provider, role=role, provider_type=provider_type, model=model or getattr(provider, "name", ""))
+            return key
+        except Exception as exc:
+            logger.error("[LLMRouter] Failed to create provider for role %s: %s", role, exc)
+            return None
+
+    def register_provider(self, name: str, provider: LLMProvider, **meta: Any) -> None:
         self._providers[name] = provider
-        logger.debug(f"[LLMRouter] Registered provider: {name} "
-                     f"(available={provider.is_available})")
+        self._provider_meta[name] = dict(meta)
+        try:
+            available = provider.is_available
+        except Exception:
+            available = False
+        logger.debug("[LLMRouter] Registered provider: %s (available=%s)", name, available)
 
     def route(self, task_type: TaskType) -> LLMProvider:
         """Return the best available provider for this task type."""
         preference = self._routing.get(task_type, list(self._providers.keys()))
+        fallback_enabled = bool(getattr(self._config, "model_fallback_enabled", True)) if self._config else True
+        first_candidate: Optional[LLMProvider] = None
         for name in preference:
             provider = self._providers.get(name)
-            if provider and provider.is_available:
-                return provider
-        # Fallback: any available
-        for provider in self._providers.values():
-            if provider.is_available:
-                return provider
-        return self._null
+            if provider is None:
+                continue
+            first_candidate = first_candidate or provider
+            try:
+                if provider.is_available:
+                    return provider
+            except Exception:
+                continue
+            if not fallback_enabled:
+                return provider if provider is not None else self._null
+        if fallback_enabled:
+            for name, provider in self._providers.items():
+                if name == "null":
+                    continue
+                try:
+                    if provider.is_available:
+                        return provider
+                except Exception:
+                    continue
+        return first_candidate or self._null
 
     def available_providers(self) -> List[str]:
         result = []
         for name, p in self._providers.items():
-            if p.is_available:
-                result.append(name)
+            try:
+                if p.is_available:
+                    result.append(name)
+            except Exception:
+                pass
         if not result:
             result.append("null")
         return result
+
+    def status(self, refresh: bool = False) -> Dict[str, Any]:
+        """Return current model profile, role routing and provider health."""
+        providers = []
+        for key, provider in self._providers.items():
+            if refresh and hasattr(provider, "_available"):
+                try:
+                    setattr(provider, "_available", None)
+                except Exception:
+                    pass
+            try:
+                available = bool(provider.is_available)
+            except Exception:
+                available = False
+            meta = dict(self._provider_meta.get(key, {}))
+            providers.append({
+                "key": key,
+                "name": provider.name,
+                "available": available,
+                "role": meta.get("role", ""),
+                "provider_type": meta.get("provider_type", ""),
+                "model": meta.get("model", provider.name),
+            })
+        roles = {}
+        for role, key in self._role_provider_keys.items():
+            provider = self._providers.get(key)
+            roles[role] = {
+                "provider_key": key,
+                "provider": provider.name if provider else key,
+                "available": bool(provider.is_available) if provider else False,
+            }
+        routes = {task.value: [p for p in prefs] for task, prefs in self._routing.items()}
+        return {
+            "schema": "model_router_v10",
+            "profile": self._profile_name,
+            "roles": roles,
+            "providers": providers,
+            "routes": routes,
+            "available": self.available_providers(),
+        }
 
     async def generate(self, prompt: str,
                        task_type: TaskType = TaskType.SIMPLE_CHAT,
                        system: str = "",
                        **kwargs) -> str:
         provider = self.route(task_type)
-        logger.debug(f"[LLMRouter] {task_type.value} → {provider.name}")
+        logger.debug("[LLMRouter] %s → %s", task_type.value, provider.name)
         return await provider.generate(prompt, system=system, **kwargs)
 
     async def imagine(self, seed: str, context: dict,
                       task_type: TaskType = TaskType.CREATIVE_IMAGINATION) -> List[dict]:
         provider = self.route(task_type)
-        logger.debug(f"[LLMRouter] imagine → {provider.name}")
+        logger.debug("[LLMRouter] imagine → %s", provider.name)
         return await provider.imagine(seed, context)
 
     async def summarize(self, text: str) -> str:

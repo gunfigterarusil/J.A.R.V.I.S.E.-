@@ -139,8 +139,13 @@ class DesktopApp:
         add_button(controls, "Understand GUI", self.understand_gui)
         add_button(controls, "Sleep / consolidate", self.sleep_cycle)
         add_button(controls, "Memory / storage status", self.memory_status)
+        add_button(controls, "Model router status", self.model_status)
         add_button(controls, "Runtime / health status", self.runtime_status)
         add_button(controls, "Runtime self-test", self.runtime_self_test)
+        add_button(controls, "System monitor", self.system_status)
+        add_button(controls, "Diagnose system", self.system_diagnose)
+        add_button(controls, "Proactive status", self.proactive_status)
+        add_button(controls, "Daily summary", self.daily_summary)
         add_button(controls, "Action status", self.action_status)
         add_button(controls, "Web search help", lambda: self._prefill("пошукай в інтернеті "))
         add_button(controls, "Web learn help", lambda: self._prefill("вивчи "))
@@ -160,8 +165,12 @@ class DesktopApp:
         ttk.Label(commands.body, text="Click to fill input", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(4, 6), padx=4)
         examples = [
             "покажи стан пам'яті",
+            "покажи статус моделей",
             "покажи runtime status",
             "запусти runtime self-test",
+            "перевір систему",
+            "покажи proactive status",
+            "зроби підсумок дня",
             "згадай переносний диск",
             "прочитай файл README.md",
             "знайди error в .",
@@ -248,6 +257,10 @@ class DesktopApp:
                     text = "Sleep cycle completed. " + str(event.data.get("summary", "") or "").strip()
                 elif event.type == "action_result" and event.data.get("respond_fallback"):
                     text = str(event.data)
+                elif event.type == "proactive_notification":
+                    text = str(event.data.get("text", "") or "").strip()
+                elif event.type == "proactive_daily_summary":
+                    text = str(event.data.get("text", "") or "").strip()
                 if text:
                     self.messages.put_nowait(("assistant", text))
             except Exception:
@@ -274,10 +287,20 @@ class DesktopApp:
             self.action_status(); return
         if lower in {"/memory", "/memory-status", "/storage"}:
             self.memory_status(); return
+        if lower in {"/models", "/model-status", "/model-health", "/model-profile"}:
+            self.model_status(); return
         if lower in {"/runtime", "/runtime-status", "/health", "/service-status"}:
             self.runtime_status(); return
         if lower in {"/self-test", "/runtime-self-test", "/health-check"}:
             self.runtime_self_test(); return
+        if lower in {"/system", "/monitor", "/system-status"}:
+            self.system_status(); return
+        if lower in {"/diagnose-system"}:
+            self.system_diagnose(); return
+        if lower in {"/proactive", "/proactive-status", "/companion"}:
+            self.proactive_status(); return
+        if lower in {"/daily-summary", "/summary", "/companion-summary"}:
+            self.daily_summary(); return
         if lower in {"/tasks", "/task-status"} or lower.startswith("/task-status "):
             self.emit("task_chain_status_requested", {"task_id": text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) > 1 else "", "respond": True}, Priority.COGNITIVE); return
         if lower.startswith("/task-step") or lower.startswith("/continue-task"):
@@ -341,11 +364,37 @@ class DesktopApp:
     def gui_step(self) -> None:
         self.emit("gui_task_step_requested", {"respond": True}, Priority.COGNITIVE)
 
+
+    def model_status(self) -> None:
+        router = getattr(self.kernel, "llm_router", None)
+        if router is None or not hasattr(router, "status"):
+            self._append("system", "Model router is not available.")
+            return
+        status = router.status(refresh=True)
+        lines = [f"Model router V10 profile: {status.get('profile')}"]
+        for role in ["fast", "reason", "code", "critic", "vision", "embedding", "action"]:
+            info = (status.get("roles") or {}).get(role) or {}
+            lines.append(f"- {role}: {info.get('provider', 'not configured')} available={info.get('available', False)}")
+        lines.append(f"available providers: {', '.join(status.get('available') or [])}")
+        self._append("system", "\n".join(lines))
+
     def runtime_status(self) -> None:
         self.emit("runtime_status_requested", {"respond": True}, Priority.COGNITIVE)
 
     def runtime_self_test(self) -> None:
         self.emit("runtime_self_test_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def system_status(self) -> None:
+        self.emit("system_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def system_diagnose(self) -> None:
+        self.emit("system_diagnose_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def proactive_status(self) -> None:
+        self.emit("proactive_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def daily_summary(self) -> None:
+        self.emit("daily_summary_requested", {"respond": True}, Priority.COGNITIVE)
 
     def task_step(self) -> None:
         self.emit("task_chain_step_requested", {"respond": True}, Priority.COGNITIVE)

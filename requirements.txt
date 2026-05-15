@@ -25,3 +25,4 @@ pyinstaller
 
 # V9.7 Safe GUI Automation MVP
 pyautogui
+psutil

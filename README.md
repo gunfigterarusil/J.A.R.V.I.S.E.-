@@ -1484,3 +1484,161 @@ pip install pyautogui
 ```
 
 On Linux, GUI automation also requires a real desktop session and may need OS packages for screenshots/keyboard/mouse integration.
+
+---
+
+## V10 — Modular Model/API Router MVP
+
+Status: ✅ MVP Done
+
+V10 makes JAV model-role based instead of single-model based. Different parts of the brain can use different providers/models:
+
+```text
+fast      → quick dialogue and summaries
+reason    → deep thinking / analysis
+code      → project repair and patches
+critic    → future verification/review loops
+vision    → screen/vision reasoning
+embedding → semantic memory/vector search role
+action    → task-chain and GUI action planning
+```
+
+### Model profiles
+
+```env
+MODEL_PROFILE=offline
+```
+
+Built-in profiles:
+
+```text
+offline
+balanced
+power
+code
+voice_companion
+custom
+```
+
+### Role override example
+
+```env
+MODEL_PROFILE=custom
+MODEL_FAST_PROVIDER=ollama
+MODEL_FAST_NAME=qwen2.5:7b
+MODEL_REASON_PROVIDER=ollama
+MODEL_REASON_NAME=llama3.1:8b
+MODEL_CODE_PROVIDER=ollama
+MODEL_CODE_NAME=qwen2.5-coder:7b
+MODEL_ACTION_PROVIDER=ollama
+MODEL_ACTION_NAME=qwen2.5:7b
+MODEL_VISION_PROVIDER=ollama
+MODEL_VISION_NAME=llava
+```
+
+### Status commands
+
+```text
+/models
+/model-status
+/model-health
+/model-profile
+```
+
+Natural language:
+
+```text
+покажи статус моделей
+яка модель активна
+model health
+```
+
+Settings Center now includes a **Model Profiles / Router** tab where the roles, providers, models, fallbacks and default generation settings can be configured.
+
+---
+
+## V11 — Proactive Companion + System Monitor MVP
+
+Status: ✅ MVP Done
+
+V11 moves JAV closer to a permanent companion: it monitors the local machine/runtime/model stack and can proactively notify you when something likely needs attention.
+
+### New modules
+
+```text
+modules/tier1_essential/system_monitor/system_monitor_module.py
+modules/tier3_reasoning/proactive/proactive_assistant_module.py
+```
+
+### What it monitors
+
+```text
+CPU / RAM / disk usage
+portable data drive and workspace disk
+network availability
+Ollama health
+model-router role availability
+runtime health/error signals
+recent task/repair/gui/web/action errors
+```
+
+### Commands
+
+```text
+/system
+/monitor
+/system-status
+/diagnose-system
+/proactive
+/proactive-status
+/daily-summary
+```
+
+Natural language also works:
+
+```text
+перевір систему
+діагностуй систему
+стан комп'ютера
+покажи proactive status
+що ти помітив
+зроби підсумок дня
+```
+
+### Safety / anti-spam behavior
+
+Proactive messages are conservative by default:
+
+```text
+importance threshold
+per-issue cooldown
+chat/UI notifications on
+spoken proactive alerts off by default
+```
+
+Enable spoken alerts only after testing:
+
+```env
+PROACTIVE_SPEAK_NOTIFICATIONS=true
+```
+
+### V11 config
+
+```env
+SYSTEM_MONITOR_ENABLED=true
+SYSTEM_MONITOR_INTERVAL_SECONDS=20
+SYSTEM_CPU_WARN_PERCENT=90
+SYSTEM_MEMORY_WARN_PERCENT=88
+SYSTEM_DISK_WARN_PERCENT=90
+SYSTEM_TEMP_WARN_C=85
+SYSTEM_CHECK_NETWORK=true
+SYSTEM_CHECK_OLLAMA=true
+SYSTEM_CHECK_MODELS=true
+
+PROACTIVE_COMPANION_ENABLED=true
+PROACTIVE_CHAT_NOTIFICATIONS=true
+PROACTIVE_SPEAK_NOTIFICATIONS=false
+PROACTIVE_MIN_IMPORTANCE=0.55
+PROACTIVE_COOLDOWN_SECONDS=300
+PROACTIVE_DAILY_SUMMARY_ENABLED=true
+```

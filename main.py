@@ -227,7 +227,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /see, /vision, /gui, /gui-task, /gui-auto, /gui-step, /gui-status, /gui-cancel, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
+    print("Jarvis chat mode. Type /models, /system, /proactive, /daily-summary, /model-health, /see, /vision, /gui, /gui-task, /gui-auto, /gui-step, /gui-status, /gui-cancel, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -257,6 +257,19 @@ async def run_with_chat(kernel: Kernel) -> None:
                 await wait_action_response()
                 continue
 
+            if lower in {"/models", "/model-status", "/model-health", "/model-profile"}:
+                router = getattr(kernel, "llm_router", None)
+                if router is None or not hasattr(router, "status"):
+                    print("Jarvis: model router is not available.\n")
+                else:
+                    status = router.status(refresh=True)
+                    print(f"Jarvis model router V10 profile: {status.get('profile')}")
+                    for role in ["fast", "reason", "code", "critic", "vision", "embedding", "action"]:
+                        info = (status.get("roles") or {}).get(role) or {}
+                        print(f"- {role}: {info.get('provider', 'not configured')} available={info.get('available', False)}")
+                    print(f"available providers: {', '.join(status.get('available') or [])}\n")
+                continue
+
             if lower in {"/runtime", "/runtime-status", "/health", "/service-status"}:
                 kernel.event_bus.emit(
                     CognitiveEvent(type="runtime_status_requested", data={"respond": True}, source_module="cli_chat"),
@@ -271,6 +284,30 @@ async def run_with_chat(kernel: Kernel) -> None:
                     Priority.COGNITIVE,
                 )
                 await wait_action_response()
+                continue
+
+            if lower in {"/system", "/monitor", "/system-status", "/diagnose-system"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="system_diagnose_requested" if lower == "/diagnose-system" else "system_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=45.0)
+                continue
+
+            if lower in {"/proactive", "/proactive-status", "/companion"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="proactive_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+            if lower in {"/daily-summary", "/summary", "/companion-summary"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="daily_summary_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
                 continue
 
 
@@ -655,6 +692,15 @@ def init_portable_layout(target: str | None = None) -> Path:
         "MEMORY_EPISODIC_RETENTION_DAYS": "3650",
         "MEMORY_EPISODIC_MAX_ITEMS": "100000",
         "MEMORY_SEARCH_TOP_K": "8",
+        "MODEL_PROFILE": "offline",
+        "MODEL_FAST_PROVIDER": "ollama",
+        "MODEL_FAST_NAME": "qwen2.5:7b",
+        "MODEL_REASON_PROVIDER": "ollama",
+        "MODEL_REASON_NAME": "llama3.1:8b",
+        "MODEL_CODE_PROVIDER": "ollama",
+        "MODEL_CODE_NAME": "qwen2.5-coder:7b",
+        "MODEL_ACTION_PROVIDER": "ollama",
+        "MODEL_ACTION_NAME": "qwen2.5:7b",
         "JAV_SERVICE_MODE": "false",
         "JAV_WATCHDOG_ENABLED": "true",
         "RUNTIME_LOG_TO_FILE": "true",
@@ -665,6 +711,16 @@ def init_portable_layout(target: str | None = None) -> Path:
         "GUI_AUTOMATION_AUTO_ENABLED": "false",
         "GUI_AUTOMATION_MAX_STEPS": "12",
         "GUI_AUTOMATION_BLOCK_SENSITIVE": "true",
+        "SYSTEM_MONITOR_ENABLED": "true",
+        "SYSTEM_MONITOR_INTERVAL_SECONDS": "20",
+        "SYSTEM_CHECK_OLLAMA": "true",
+        "SYSTEM_CHECK_MODELS": "true",
+        "PROACTIVE_COMPANION_ENABLED": "true",
+        "PROACTIVE_CHAT_NOTIFICATIONS": "true",
+        "PROACTIVE_SPEAK_NOTIFICATIONS": "false",
+        "PROACTIVE_MIN_IMPORTANCE": "0.55",
+        "PROACTIVE_COOLDOWN_SECONDS": "300",
+        "PROACTIVE_DAILY_SUMMARY_ENABLED": "true",
     }
     existing = {line.split("=", 1)[0].strip() for line in lines if "=" in line and not line.lstrip().startswith("#")}
     out = list(lines)

@@ -409,7 +409,7 @@ class CodeRepairModule(CognitiveModule):
         )
         prompt = self._build_repair_prompt(session, candidate_files)
         try:
-            raw = await router.generate(prompt, task_type=TaskType.COMPLEX_REASONING, system=system, temperature=0.2, max_tokens=4096)
+            raw = await router.generate(prompt, task_type=TaskType.CODE_REPAIR, system=system, temperature=0.2, max_tokens=4096)
         except Exception as exc:
             return {"summary": f"LLM error: {exc}", "reasoning": self._fallback_reasoning(session["diagnostics"]), "changed_files": []}
         parsed = self._parse_llm_json(raw)

@@ -279,7 +279,7 @@ class GuiAgentModule(CognitiveModule):
         try:
             kwargs = {"system": system, "temperature": 0.2, "max_tokens": 900}
             if TaskType is not None:
-                raw = await router.generate(prompt, task_type=TaskType.PLANNING, **kwargs)
+                raw = await router.generate(prompt, task_type=TaskType.ACTION_PLANNING, **kwargs)
             else:
                 raw = await router.generate(prompt, **kwargs)
             parsed = self._parse_json(raw)

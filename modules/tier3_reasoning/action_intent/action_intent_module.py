@@ -157,6 +157,21 @@ class ActionIntentModule(CognitiveModule):
             f"environment: {snap.get('environment')}"
         )
 
+
+    def _model_router_status(self) -> str:
+        router = getattr(self.kernel, "llm_router", None) if self.kernel else None
+        if router is None or not hasattr(router, "status"):
+            return "Model router is not available."
+        status = router.status(refresh=True)
+        lines = [f"Model router V10 profile: {status.get('profile')}"]
+        roles = status.get("roles") or {}
+        for role in ["fast", "reason", "code", "critic", "vision", "embedding", "action"]:
+            info = roles.get(role) or {}
+            lines.append(f"- {role}: {info.get('provider', 'not configured')} available={info.get('available', False)}")
+        available = ", ".join(status.get("available") or [])
+        lines.append(f"available providers: {available}")
+        return "\n".join(lines)
+
     def _set_safety(self, level: int) -> None:
         if not self.kernel:
             return
@@ -233,6 +248,14 @@ class ActionIntentModule(CognitiveModule):
         if any(p in lower for p in ["runtime self-test", "health check", "self test", "самотест", "перевір себе", "перевір стан програми"]):
             return "event", "runtime_self_test_requested", {}, ""
 
+        # V11 system monitor / proactive companion.
+        if any(p in lower for p in ["перевір систему", "діагностуй систему", "що з комп", "що з пк", "стан пк", "стан комп", "system monitor", "system status", "diagnose system", "monitor pc", "перевір ресурси"]):
+            return "event", "system_diagnose_requested", {"respond": True}, ""
+        if any(p in lower for p in ["покажи proactive", "proactive status", "статус напарника", "стан напарника", "companion status", "що ти помітив"]):
+            return "event", "proactive_status_requested", {"respond": True}, ""
+        if any(p in lower for p in ["daily summary", "денний звіт", "щоденний звіт", "підсумок дня", "companion summary", "зроби підсумок"]):
+            return "event", "daily_summary_requested", {"respond": True}, ""
+
         # Status/self/world/settings.
         if any(p in lower for p in ["статус пам", "стан пам", "де пам", "storage status", "memory status", "покажи пам", "покажи стан пам", "де зберігається пам"]):
             return "event", "memory_status_requested", {}, ""
@@ -242,8 +265,10 @@ class ActionIntentModule(CognitiveModule):
             return "event", "self_model_request", {"respond": True, "reason": "natural_language_self_query"}, ""
         if any(p in lower for p in ["що ти знаєш про світ", "покажи world", "контекст світу", "world model"]):
             return "event", "world_model_request", {"respond": True, "reason": "natural_language_world_query"}, ""
+        if any(p in lower for p in ["статус моделей", "покажи моделі", "model status", "models status", "яка модель", "model router", "model health"]):
+            return "response", "models", {}, self._model_router_status()
         if any(p in lower for p in ["покажи налаштування", "відкрий налаштування", "settings", "налаштування"]):
-            return "response", "settings", {}, "Налаштування доступні у Desktop → Settings Center. Там можна керувати LLM, голосом, OCR, action executor, safety, sleep, emotion, self/world model і web UI. З голосу/чату я можу змінювати live safety-рівень, а повні env-налаштування краще міняти через Settings Center."
+            return "response", "settings", {}, "Налаштування доступні у Desktop → Settings Center. Там можна керувати model profiles, LLM ролями, голосом, OCR, action executor, safety, sleep, emotion, self/world model і web UI. З голосу/чату я можу змінювати live safety-рівень і показувати статус моделей, а повні env-налаштування краще міняти через Settings Center."
 
         # V9.7 general GUI automation: natural requests for desktop/browser/app control.
         if any(p in lower for p in ["статус gui", "gui status", "статус гуі", "статус інтерфейс"]):
@@ -356,7 +381,7 @@ class ActionIntentModule(CognitiveModule):
             "supported_natural_intents": [
                 "screen_read", "gui_understanding_v9_6", "sleep_consolidate", "self_status", "world_status", "settings_help",
                 "action_status", "set_safety", "approve_pending", "deny_pending", "list_files", "read_file",
-                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4", "gui_automation_v9_7",
+                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4", "gui_automation_v9_7", "system_monitor_v11", "proactive_companion_v11",
             ],
         })
         return base

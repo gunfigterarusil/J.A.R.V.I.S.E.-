@@ -95,13 +95,44 @@ class ModuleDefaults:
 
 @dataclass
 class LLMRouterConfig:
-    """Configuration for the multi-LLM router.
+    """V10 modular model/API router configuration.
 
-    API keys are read from environment variables if not set here.
-    Set via env: GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY
-    Or edit the fields below directly.
+    Legacy provider variables are still supported, but V10 adds role-based
+    routing so each subsystem can use a different model/API:
+      fast, reason, code, critic, vision, embedding, action.
+
+    Examples:
+      MODEL_PROFILE=offline
+      MODEL_CODE_PROVIDER=ollama
+      MODEL_CODE_NAME=qwen2.5-coder:7b
+      MODEL_VISION_PROVIDER=gemini
+      MODEL_VISION_NAME=gemini-2.0-flash
     """
     routing: Dict[str, str] = field(default_factory=dict)
+
+    # High-level profile: offline|balanced|power|cheap_cloud|code|voice_companion|custom
+    model_profile: str = field(default_factory=lambda: os.environ.get("MODEL_PROFILE", "offline"))
+
+    # Role provider/model overrides. Provider values: ollama|openai|gemini|anthropic|llamacpp|null
+    fast_provider: str = field(default_factory=lambda: os.environ.get("MODEL_FAST_PROVIDER", ""))
+    fast_model: str = field(default_factory=lambda: os.environ.get("MODEL_FAST_NAME", ""))
+    reason_provider: str = field(default_factory=lambda: os.environ.get("MODEL_REASON_PROVIDER", ""))
+    reason_model: str = field(default_factory=lambda: os.environ.get("MODEL_REASON_NAME", ""))
+    code_provider: str = field(default_factory=lambda: os.environ.get("MODEL_CODE_PROVIDER", ""))
+    code_model: str = field(default_factory=lambda: os.environ.get("MODEL_CODE_NAME", ""))
+    critic_provider: str = field(default_factory=lambda: os.environ.get("MODEL_CRITIC_PROVIDER", ""))
+    critic_model: str = field(default_factory=lambda: os.environ.get("MODEL_CRITIC_NAME", ""))
+    vision_provider: str = field(default_factory=lambda: os.environ.get("MODEL_VISION_PROVIDER", ""))
+    vision_model: str = field(default_factory=lambda: os.environ.get("MODEL_VISION_NAME", ""))
+    embedding_provider: str = field(default_factory=lambda: os.environ.get("MODEL_EMBEDDING_PROVIDER", ""))
+    embedding_model: str = field(default_factory=lambda: os.environ.get("MODEL_EMBEDDING_NAME", ""))
+    action_provider: str = field(default_factory=lambda: os.environ.get("MODEL_ACTION_PROVIDER", ""))
+    action_model: str = field(default_factory=lambda: os.environ.get("MODEL_ACTION_NAME", ""))
+
+    # Router behavior
+    model_health_check_enabled: bool = field(default_factory=lambda: _env_bool("MODEL_HEALTH_CHECK_ENABLED", "true"))
+    model_fallback_enabled: bool = field(default_factory=lambda: _env_bool("MODEL_FALLBACK_ENABLED", "true"))
+    model_status_emit_enabled: bool = field(default_factory=lambda: _env_bool("MODEL_STATUS_EMIT_ENABLED", "true"))
 
     # Ollama (local, no API key needed)
     ollama_host: str = field(default_factory=lambda: os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
@@ -124,9 +155,9 @@ class LLMRouterConfig:
     llamacpp_host: str = field(default_factory=lambda: os.environ.get("LLAMACPP_HOST", "http://localhost:8080"))
 
     # Generation defaults
-    default_timeout: float = 60.0
-    max_tokens: int = 2048
-    temperature: float = 0.7
+    default_timeout: float = field(default_factory=lambda: float(os.environ.get("MODEL_DEFAULT_TIMEOUT", "60")))
+    max_tokens: int = field(default_factory=lambda: int(os.environ.get("MODEL_MAX_TOKENS", "2048")))
+    temperature: float = field(default_factory=lambda: float(os.environ.get("MODEL_TEMPERATURE", "0.7")))
 
 
 @dataclass
@@ -376,6 +407,36 @@ class MonologueConfig:
 
 
 @dataclass
+class SystemMonitorConfig:
+    """V11 local machine/system/model monitoring settings."""
+    enabled: bool = field(default_factory=lambda: _env_bool("SYSTEM_MONITOR_ENABLED", "true"))
+    interval_seconds: float = field(default_factory=lambda: float(os.environ.get("SYSTEM_MONITOR_INTERVAL_SECONDS", "20")))
+    alert_cooldown_seconds: float = field(default_factory=lambda: float(os.environ.get("SYSTEM_ALERT_COOLDOWN_SECONDS", "300")))
+    cpu_warn_percent: float = field(default_factory=lambda: float(os.environ.get("SYSTEM_CPU_WARN_PERCENT", "90")))
+    memory_warn_percent: float = field(default_factory=lambda: float(os.environ.get("SYSTEM_MEMORY_WARN_PERCENT", "88")))
+    disk_warn_percent: float = field(default_factory=lambda: float(os.environ.get("SYSTEM_DISK_WARN_PERCENT", "90")))
+    temp_warn_c: float = field(default_factory=lambda: float(os.environ.get("SYSTEM_TEMP_WARN_C", "85")))
+    check_network: bool = field(default_factory=lambda: _env_bool("SYSTEM_CHECK_NETWORK", "true"))
+    check_ollama: bool = field(default_factory=lambda: _env_bool("SYSTEM_CHECK_OLLAMA", "true"))
+    check_models: bool = field(default_factory=lambda: _env_bool("SYSTEM_CHECK_MODELS", "true"))
+    network_timeout_seconds: float = field(default_factory=lambda: float(os.environ.get("SYSTEM_NETWORK_TIMEOUT_SECONDS", "3")))
+
+
+@dataclass
+class ProactiveConfig:
+    """V11 proactive companion settings. Conservative by default."""
+    enabled: bool = field(default_factory=lambda: _env_bool("PROACTIVE_COMPANION_ENABLED", "true"))
+    chat_notifications: bool = field(default_factory=lambda: _env_bool("PROACTIVE_CHAT_NOTIFICATIONS", "true"))
+    speak_notifications: bool = field(default_factory=lambda: _env_bool("PROACTIVE_SPEAK_NOTIFICATIONS", "false"))
+    min_importance: float = field(default_factory=lambda: float(os.environ.get("PROACTIVE_MIN_IMPORTANCE", "0.55")))
+    cooldown_seconds: float = field(default_factory=lambda: float(os.environ.get("PROACTIVE_COOLDOWN_SECONDS", "300")))
+    notify_task_progress: bool = field(default_factory=lambda: _env_bool("PROACTIVE_NOTIFY_TASK_PROGRESS", "true"))
+    daily_summary_enabled: bool = field(default_factory=lambda: _env_bool("PROACTIVE_DAILY_SUMMARY_ENABLED", "true"))
+    daily_summary_interval_seconds: float = field(default_factory=lambda: float(os.environ.get("PROACTIVE_DAILY_SUMMARY_INTERVAL_SECONDS", "86400")))
+    do_not_disturb: bool = field(default_factory=lambda: _env_bool("PROACTIVE_DO_NOT_DISTURB", "false"))
+
+
+@dataclass
 class RuntimeConfig:
     """V9.5 service/runtime stability settings.
 
@@ -503,6 +564,12 @@ class KernelConfig:
     # V9.1 long-term memory / portable data directory
     # ------------------------------------------------------------------
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+
+    # ------------------------------------------------------------------
+    # V11 system monitor + proactive companion
+    # ------------------------------------------------------------------
+    system_monitor: SystemMonitorConfig = field(default_factory=SystemMonitorConfig)
+    proactive: ProactiveConfig = field(default_factory=ProactiveConfig)
 
     # ------------------------------------------------------------------
     # V9.5 runtime / service mode / watchdog
