@@ -250,6 +250,7 @@ async def run_with_chat(kernel: Kernel) -> None:
                 print("Jarvis commands:")
                 print("  /status, /modules, /events, /runtime, /doctor (external), /exit")
                 print("  /models, /model-health, /model-test [role]")
+                print("  /voice, /voice-mics, /voice-test-pyttsx3, /voice-test-piper")
                 print("  /memory, /recall <query>")
                 print("  /system, /proactive, /daily-summary")
                 print("  /see, /vision, /gui")
@@ -282,6 +283,30 @@ async def run_with_chat(kernel: Kernel) -> None:
                 stats = kernel.event_bus.stats() if hasattr(kernel.event_bus, 'stats') else {}
                 print(f"Event bus stats: {stats}\n")
                 continue
+            if lower in {"/voice", "/voice-status", "/voice-doctor", "/voice-setup"}:
+                from scripts.voice_setup import format_voice_report
+                print(format_voice_report() + "\n")
+                continue
+
+            if lower in {"/voice-mics", "/microphones", "/mics"}:
+                from scripts.voice_setup import list_microphones
+                print(list_microphones() + "\n")
+                continue
+
+            if lower.startswith("/voice-test-pyttsx3"):
+                from scripts.voice_setup import test_pyttsx3
+                phrase = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else "JAV pyttsx3 voice test."
+                test_pyttsx3(phrase)
+                print()
+                continue
+
+            if lower.startswith("/voice-test-piper"):
+                from scripts.voice_setup import test_piper
+                phrase = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else "JAV Piper voice test."
+                test_piper(phrase)
+                print()
+                continue
+
             if lower in {"/memory", "/memory-status", "/storage"}:
                 kernel.event_bus.emit(
                     CognitiveEvent(type="memory_status_requested", data={"respond": True}, source_module="cli_chat"),
@@ -936,6 +961,10 @@ def main() -> None:
     parser.add_argument("--desktop", action="store_true", help="Start native desktop interface instead of browser UI")
     parser.add_argument("--service", action="store_true", help="Start headless service mode with heartbeat/logging for watchdog/systemd")
     parser.add_argument("--doctor", action="store_true", help="Run startup diagnostics and dependency checks")
+    parser.add_argument("--voice-doctor", action="store_true", help="Run voice setup diagnostics without starting the kernel")
+    parser.add_argument("--voice-list-mics", action="store_true", help="List available microphone/input devices")
+    parser.add_argument("--voice-test-pyttsx3", nargs="?", const="JAV pyttsx3 voice test.", help="Speak a short test phrase through pyttsx3")
+    parser.add_argument("--voice-test-piper", nargs="?", const="JAV Piper voice test.", help="Speak a short test phrase through Piper")
     parser.add_argument("--init-portable", nargs="?", const=".", help="Create portable data folders and .env in this project or target folder")
     parser.add_argument("--init-watchdog", action="store_true", help="Register JAV watchdog Windows Startup shortcut (auto-restart on crash)")
     parser.add_argument("--remove-watchdog", action="store_true", help="Remove JAV watchdog Windows Startup shortcut")
@@ -965,6 +994,18 @@ def main() -> None:
     if args.doctor:
         from scripts.doctor import main as doctor_main
         sys.exit(doctor_main())
+
+    if args.voice_doctor or args.voice_list_mics or args.voice_test_pyttsx3 is not None or args.voice_test_piper is not None:
+        from scripts import voice_setup
+        if args.voice_list_mics:
+            print(voice_setup.list_microphones())
+            return
+        if args.voice_test_pyttsx3 is not None:
+            sys.exit(voice_setup.test_pyttsx3(args.voice_test_pyttsx3))
+        if args.voice_test_piper is not None:
+            sys.exit(voice_setup.test_piper(args.voice_test_piper))
+        print(voice_setup.format_voice_report())
+        return
 
     selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat, args.desktop, args.service) if enabled)
     # A built desktop app should open the GUI on double-click. Source/dev mode

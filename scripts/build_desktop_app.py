@@ -115,6 +115,10 @@ def write_launchers(dst: Path) -> None:
         "@echo off\r\ncd /d %~dp0\r\nJAV-Console.exe --chat\r\npause\r\n",
         encoding="utf-8",
     )
+    (dst / "run_voice_doctor.bat").write_text(
+        "@echo off\r\ncd /d %~dp0\r\nJAV-Console.exe --voice-doctor\r\npause\r\n",
+        encoding="utf-8",
+    )
     sh = dst / "run_desktop.sh"
     sh.write_text('#!/usr/bin/env bash\ncd "$(dirname "$0")"\n[ -f .env ] || ./JAV-Console --init-portable .\n./JAV &\n', encoding="utf-8")
     doctor = dst / "run_doctor.sh"

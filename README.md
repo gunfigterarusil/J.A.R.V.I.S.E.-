@@ -62,6 +62,44 @@ data/brain/logs/desktop_crash.log
 Нормально, якщо doctor показує `WARN` для optional/external речей, які ти ще не ставив, наприклад `Piper`, `Ollama`, `sounddevice`, `faster-whisper`, `mss` або `pyautogui`. Це ламає тільки відповідну функцію, а не все ядро. `FAIL` тепер означає саме критичну проблему required-компонента.
 
 
+## Voice setup / перевірка голосу
+
+Перед запуском голосового режиму можна перевірити залежності без старту всього ядра:
+
+```bash
+python main.py --voice-doctor
+python main.py --voice-list-mics
+python main.py --voice-test-pyttsx3 "JAV voice test"
+python main.py --voice-test-piper "JAV voice test"
+```
+
+У чаті доступні команди:
+
+```text
+/voice
+/voice-mics
+/voice-test-pyttsx3
+/voice-test-piper
+```
+
+У desktop UI є вкладка **Voice**, де можна:
+
+- подивитись voice setup report;
+- перевірити мікрофони;
+- протестувати pyttsx3 fallback;
+- протестувати Piper;
+- скопіювати команду встановлення voice-залежностей;
+- запустити/зупинити voice process.
+
+Python-залежності для голосу:
+
+```bash
+python scripts/bootstrap_dependencies.py --with-voice
+```
+
+Piper CLI і `.onnx` voice model встановлюються окремо. Якщо Piper не налаштований, JAV може використовувати `pyttsx3` як fallback.
+
+
 
 ## Сучасний інтерфейс програми
 

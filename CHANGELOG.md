@@ -230,3 +230,20 @@
 - Desktop now reloads the model router live after saving model/provider/API settings.
 - Doctor now includes model-router diagnostics and per-role status.
 
+
+## V15.8 — Voice Setup / Dependency Wizard
+
+- Added `scripts/voice_setup.py` for voice diagnostics without starting the full kernel.
+- Added CLI commands:
+  - `python main.py --voice-doctor`
+  - `python main.py --voice-list-mics`
+  - `python main.py --voice-test-pyttsx3 "text"`
+  - `python main.py --voice-test-piper "text"`
+- Added chat commands:
+  - `/voice`
+  - `/voice-mics`
+  - `/voice-test-pyttsx3`
+  - `/voice-test-piper`
+- Added a new Desktop **Voice** tab with microphone listing, TTS tests, voice report, dependency command copy and start/stop voice process.
+- Doctor now includes a dedicated voice setup section so missing voice dependencies are easier to understand.
+- Voice warnings remain optional and do not block core/chat/desktop startup.

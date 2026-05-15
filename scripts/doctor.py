@@ -262,6 +262,15 @@ def main() -> int:
     check("Ollama executable", shutil.which("ollama") is not None,
           shutil.which("ollama") or "optional; needed only for local Ollama models", severity="external")
 
+    print("\nVoice setup:")
+    try:
+        from scripts.voice_setup import collect_voice_checks
+        for item in collect_voice_checks():
+            sev = "external" if item.status in {"WARN", "INFO"} else "required"
+            check(item.name, item.status in {"OK", "INFO"}, item.detail + (("; " + item.fix) if item.fix and item.status in {"WARN", "FAIL"} else ""), severity=sev)
+    except Exception as exc:
+        check("voice setup diagnostics", False, repr(exc), severity="optional")
+
     print("\nModel router:")
     try:
         from config import KernelConfig

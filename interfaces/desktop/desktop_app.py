@@ -309,12 +309,13 @@ class DesktopApp:
         models = ScrollableFrame(tabs)
         events = ttk.Frame(tabs, padding=8)
         doctor = ttk.Frame(tabs, padding=8)
+        voice_setup = ScrollableFrame(tabs)
         logs = ttk.Frame(tabs, padding=8)
 
         for frame, label in [
             (dashboard, "🏠 Home"), (commands, "⌘ Commands"), (tasks, "✅ Tasks"),
             (approvals, "🛡 Approvals"), (memory, "🧠 Memory"), (models, "⚙ Models"),
-            (events, "📡 Events"), (doctor, "🩺 Doctor"), (logs, "📜 Logs"),
+            (events, "📡 Events"), (doctor, "🩺 Doctor"), (voice_setup, "🎙 Voice"), (logs, "📜 Logs"),
         ]:
             tabs.add(frame, text=label)
 
@@ -326,6 +327,7 @@ class DesktopApp:
         self._build_models_tab(models)
         self._build_events_tab(events)
         self._build_doctor_tab(doctor)
+        self._build_voice_setup_tab(voice_setup)
         self._build_logs_tab(logs)
 
     def _button(self, parent, text: str, command) -> None:
@@ -367,7 +369,9 @@ class DesktopApp:
         voice = self._section(tab, "Voice companion", "Start the separate voice loop when microphone/STT/TTS are configured.")
         self.voice_status_label = ttk.Label(voice, text="Voice: stopped", style="Muted.Card.TLabel")
         self.voice_status_label.pack(anchor="w", pady=(0, 6))
-        ttk.Button(voice, text="🎙 Start / stop voice mode", command=self.toggle_voice_process).pack(fill=tk.X)
+        ttk.Button(voice, text="🎙 Start / stop voice mode", command=self.toggle_voice_process).pack(fill=tk.X, pady=3)
+        ttk.Button(voice, text="🧪 Voice setup report", command=self.voice_setup_report).pack(fill=tk.X, pady=3)
+        ttk.Button(voice, text="🔊 Test pyttsx3 fallback", command=self.voice_test_pyttsx3).pack(fill=tk.X, pady=3)
 
         safety = self._section(tab, "Safety level", "Use the lowest level that can complete the task.")
         for lvl, text in [(1, "L1 Read-only"), (4, "L4 File write in workspace"), (5, "L5 Allowlisted shell")]:
@@ -472,6 +476,24 @@ class DesktopApp:
         from interfaces.desktop.doctor_panel import DoctorPanel
         panel = DoctorPanel(tab)
         panel.pack(fill=tk.BOTH, expand=True)
+
+    def _build_voice_setup_tab(self, tab: ScrollableFrame) -> None:
+        self._label(tab, "Voice setup", True)
+        info = self._section(tab, "Setup checklist", "Check microphone/STT/TTS before starting full voice mode. Missing voice dependencies are warnings, not core failures.")
+        for text, cmd in [
+            ("🧪 Run voice setup report", self.voice_setup_report),
+            ("🎙 List microphones", self.voice_list_microphones),
+            ("🔊 Test pyttsx3 fallback TTS", self.voice_test_pyttsx3),
+            ("🗣 Test Piper TTS", self.voice_test_piper),
+            ("📦 Copy voice dependency install command", self.copy_voice_install_command),
+            ("⚙ Open Settings", self.open_settings),
+            ("▶ Start / stop voice process", self.toggle_voice_process),
+        ]:
+            ttk.Button(info, text=text, command=cmd).pack(fill=tk.X, pady=3)
+        self.voice_setup_output = scrolledtext.ScrolledText(tab.body, height=20, wrap=tk.WORD, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
+        self.voice_setup_output.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 8))
+        self.voice_setup_output.insert(tk.END, "Run Voice setup report to check microphone, STT, Piper and pyttsx3.\n")
+        self.voice_setup_output.configure(state=tk.DISABLED)
 
     def _build_logs_tab(self, tab: ttk.Frame) -> None:
         header = ttk.Frame(tab)
@@ -1101,6 +1123,82 @@ class DesktopApp:
         else:
             self.approval_detail.insert(tk.END, "No approval selected.")
         self.approval_detail.configure(state=tk.DISABLED)
+
+    def _run_helper_command(self, args: list[str], timeout: int = 30) -> str:
+        """Run a helper command in source or frozen mode and return combined output."""
+        if getattr(sys, "frozen", False):
+            root = Path(sys.executable).resolve().parent
+            cmd = [sys.executable, *args]
+        else:
+            root = Path(__file__).resolve().parents[2]
+            cmd = [sys.executable, str(root / "main.py"), *args] if args and args[0].startswith("--") else [sys.executable, *args]
+        try:
+            proc = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, timeout=timeout)
+            out = (proc.stdout or "") + (proc.stderr or "")
+            if proc.returncode != 0:
+                out += f"\n[exit code {proc.returncode}]"
+            return out.strip() or "(no output)"
+        except Exception as exc:
+            return f"Command failed: {exc}"
+
+    def _set_voice_output(self, text: str) -> None:
+        try:
+            self.voice_setup_output.configure(state=tk.NORMAL)
+            self.voice_setup_output.delete("1.0", tk.END)
+            self.voice_setup_output.insert(tk.END, text)
+            self.voice_setup_output.configure(state=tk.DISABLED)
+        except Exception:
+            self._append("system", text)
+
+    def voice_setup_report(self) -> None:
+        out = self._run_helper_command(["--voice-doctor"], timeout=35)
+        self._set_voice_output(out)
+        self._append("system", "Voice setup report completed. Open the Voice tab for details.")
+
+    def voice_list_microphones(self) -> None:
+        root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--voice-list-mics"]
+        else:
+            cmd = [sys.executable, str(root / "scripts" / "voice_setup.py"), "--list-mics"]
+        try:
+            proc = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, timeout=20)
+            self._set_voice_output(((proc.stdout or "") + (proc.stderr or "")).strip() or "(no output)")
+        except Exception as exc:
+            self._set_voice_output(f"Could not list microphones: {exc}")
+
+    def voice_test_pyttsx3(self) -> None:
+        root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--voice-test-pyttsx3", "JAV pyttsx3 voice test."]
+        else:
+            cmd = [sys.executable, str(root / "scripts" / "voice_setup.py"), "--test-pyttsx3", "JAV pyttsx3 voice test."]
+        try:
+            subprocess.Popen(cmd, cwd=str(root))
+            self._append("system", "Started pyttsx3 test in a helper process.")
+        except Exception as exc:
+            self._append("system", f"Could not start pyttsx3 test: {exc}")
+
+    def voice_test_piper(self) -> None:
+        root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--voice-test-piper", "JAV Piper voice test."]
+        else:
+            cmd = [sys.executable, str(root / "scripts" / "voice_setup.py"), "--test-piper", "JAV Piper voice test."]
+        try:
+            subprocess.Popen(cmd, cwd=str(root))
+            self._append("system", "Started Piper test in a helper process.")
+        except Exception as exc:
+            self._append("system", f"Could not start Piper test: {exc}")
+
+    def copy_voice_install_command(self) -> None:
+        cmd = "python scripts/bootstrap_dependencies.py --with-voice"
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(cmd)
+            self._append("system", "Copied voice dependency command: " + cmd)
+        except Exception:
+            self._append("system", cmd)
 
     def toggle_voice_process(self) -> None:
         if self.voice_process and self.voice_process.poll() is None:
