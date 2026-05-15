@@ -23,6 +23,26 @@ If Ollama or cloud API is not configured, JAV will use NullProvider and remain u
 
 ---
 
+## V18 Modern Assistant Shell
+
+The desktop mode now opens a cleaner assistant cockpit:
+
+```bash
+python main.py --desktop
+```
+
+Highlights:
+
+- premium dark dashboard with live status cards;
+- header HUD chips for Kernel, Voice, Ambient perception and Models;
+- quick scenario buttons for diagnosis, screen analysis, model status, repair and web research;
+- improved chat typography with timestamps;
+- dedicated tabs for Home, Commands, Tasks, Approvals, Memory, Models, Events, Doctor, Voice and Logs;
+- ambient/privacy and emotional-voice status commands: `/ambient-status`, `/emotion-voice-status`.
+
+The UI still uses built-in Tkinter/ttk, so portable builds stay lightweight and do not require PySide/Electron.
+
+
 ## Швидка діагностика, якщо програма не запускається
 
 Перед тим як шукати проблему вручну, запусти:
@@ -790,37 +810,3 @@ Run diagnostics:
 python main.py --model-doctor
 ```
 
-
-## V17.1 Ambient/Voice Stability Notes
-
-Ambient Perception is controlled by:
-
-```env
-SCREEN_AUTO_WATCH_ENABLED=false
-SCREEN_AMBIENT_INTERVAL=8
-SCREEN_AMBIENT_PROACTIVE=true
-SCREEN_AMBIENT_PRIVACY_MODE=true
-SCREEN_AMBIENT_STORE_SCREENSHOTS=false
-SCREEN_AMBIENT_PROACTIVE_COOLDOWN=120
-SCREEN_AMBIENT_SAME_ERROR_COOLDOWN=300
-SCREEN_AMBIENT_EXCLUDED_APPS=
-SCREEN_AMBIENT_PAUSE_ON_SENSITIVE=true
-```
-
-Useful chat commands:
-
-```text
-/ambient-status
-/emotion-voice-status
-```
-
-The first ambient capture is used as a baseline only. JAV will not proactively notify you just because a baseline was created. Ambient screenshots are not stored by default; OCR/GUI parsing uses the temporary image and removes it after processing.
-
-Emotional TTS is controlled by:
-
-```env
-VOICE_EMOTIONAL_TTS=true
-VOICE_EMOTIONAL_TTS_STRENGTH=0.35
-```
-
-Set `VOICE_EMOTIONAL_TTS_STRENGTH=0` to disable modulation or increase it up to `1.0` for a stronger effect.

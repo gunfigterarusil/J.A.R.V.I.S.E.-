@@ -1,12 +1,12 @@
-"""V15 native Assistant Shell for JAV / Jarvis Brain Core.
+"""V18 Modern Assistant Shell for JAV / Jarvis Brain Core.
 
-V15 upgrades the old technical desktop window into a daily-use assistant shell:
-- dashboard status cards for runtime/system/models/memory/tasks/actions
-- dedicated tabs for chat, activity, tasks, approvals, memory/skills, models and events
-- optional tray icon and desktop notifications
-- voice process launcher / stop button
-- safer approval panel and command palette
-- still pure Tkinter so it works without heavy UI dependencies
+V18 keeps the zero-heavy-dependency Tkinter foundation, but turns the desktop
+window into a modern assistant cockpit:
+- premium dark dashboard with live status cards and HUD chips
+- calmer chat layout with quick scenario buttons
+- dedicated panels for models, memory, voice, workspace, doctor and logs
+- better visual hierarchy for daily use, not only debugging
+- still pure Tkinter so portable builds remain lightweight and reliable
 """
 from __future__ import annotations
 
@@ -36,18 +36,22 @@ from interfaces.desktop.tray import AssistantTray
 # Modern assistant-shell palette.  Still pure Tkinter/ttk, but the UI now behaves
 # like a product dashboard instead of a technical debug window.
 UI = {
-    "bg": "#0b1020",
-    "panel": "#111827",
-    "panel_2": "#172033",
-    "input": "#070b14",
-    "border": "#263247",
+    "bg": "#080c16",
+    "panel": "#101827",
+    "panel_2": "#162033",
+    "panel_3": "#1c2940",
+    "input": "#060914",
+    "border": "#26344e",
     "text": "#f8fafc",
-    "muted": "#94a3b8",
+    "muted": "#9aa8bd",
+    "dim": "#64748b",
     "blue": "#38bdf8",
+    "cyan": "#22d3ee",
     "green": "#34d399",
     "orange": "#f59e0b",
     "red": "#fb7185",
     "purple": "#a78bfa",
+    "pink": "#f472b6",
 }
 
 
@@ -86,6 +90,24 @@ class InfoCard(ttk.Frame):
         self.subtitle.configure(text=subtitle)
 
 
+
+
+class StatusPill(ttk.Frame):
+    """Small live status chip used in the header HUD."""
+
+    def __init__(self, master, label: str, value: str = "—", accent: str = "blue") -> None:
+        super().__init__(master, style="Pill.TFrame", padding=(10, 6))
+        self._accent = accent
+        self.label = ttk.Label(self, text=label.upper(), style="Muted.Pill.TLabel", font=("Segoe UI", 7, "bold"))
+        self.value = ttk.Label(self, text=value, style="Pill.TLabel", font=("Segoe UI", 9, "bold"))
+        self.label.pack(anchor="w")
+        self.value.pack(anchor="w")
+
+    def set(self, value: str, accent: str | None = None) -> None:
+        self.value.configure(text=value)
+        if accent:
+            self._accent = accent
+
 class DesktopApp:
     def __init__(self, cfg: KernelConfig | None = None) -> None:
         self.cfg = cfg or KernelConfig()
@@ -116,19 +138,20 @@ class DesktopApp:
                 "or use: python main.py --chat / --web / --service."
             ) from exc
 
-        self.root.title("JAV — Personal AI Assistant")
-        self.root.geometry(os.environ.get("DESKTOP_WINDOW_GEOMETRY", "1320x820"))
-        self.root.minsize(1080, 680)
+        self.root.title("JAV — Personal AI Assistant Shell")
+        self.root.geometry(os.environ.get("DESKTOP_WINDOW_GEOMETRY", "1440x900"))
+        self.root.minsize(1180, 720)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
         # Build the window first, then boot the cognitive kernel in a background thread.
         # This prevents the common "black console with two startup lines" feeling when
         # module loading, optional network checks, or model health checks take a while.
         self._build_ui()
+        self._bind_shortcuts()
         self._start_optional_tray()
         if os.environ.get("DESKTOP_START_MINIMIZED", "false").lower() == "true":
             self.root.withdraw()
-        self._append("system", "JAV Assistant Shell is opening. Booting cognitive kernel in the background…")
+        self._append("system", "JAV Assistant Shell is opening. Booting the cognitive kernel in the background…")
         self.status_label.configure(text="booting kernel…")
         self._start_kernel_boot()
         self._tick_ui()
@@ -168,7 +191,7 @@ class DesktopApp:
         self.api.start_in_background()
         self.kernel_ready = True
         self.status_label.configure(text="running")
-        self._append("system", "JAV Assistant Shell V15.2 started. Use natural language, voice process, command palette, or Settings Center.")
+        self._append("system", "JAV Assistant Shell V18 started. Use natural language, quick scenarios, voice, or Settings Center.")
         self.root.after(1000, self._refresh_model_status_bg)
 
     def _ensure_ready(self) -> bool:
@@ -191,11 +214,17 @@ class DesktopApp:
         style.configure("TFrame", background=UI["bg"])
         style.configure("Card.TFrame", background=UI["panel"], relief="flat")
         style.configure("SoftCard.TFrame", background=UI["panel_2"], relief="flat")
+        style.configure("Hero.TFrame", background=UI["panel_2"], relief="flat")
+        style.configure("Pill.TFrame", background=UI["panel_3"], relief="flat")
         style.configure("TLabel", background=UI["bg"], foreground=UI["text"])
         style.configure("Card.TLabel", background=UI["panel"], foreground=UI["text"])
         style.configure("SoftCard.TLabel", background=UI["panel_2"], foreground=UI["text"])
         style.configure("Muted.Card.TLabel", background=UI["panel"], foreground=UI["muted"])
         style.configure("Muted.SoftCard.TLabel", background=UI["panel_2"], foreground=UI["muted"])
+        style.configure("Hero.TLabel", background=UI["panel_2"], foreground=UI["text"])
+        style.configure("Muted.Hero.TLabel", background=UI["panel_2"], foreground=UI["muted"])
+        style.configure("Pill.TLabel", background=UI["panel_3"], foreground=UI["text"])
+        style.configure("Muted.Pill.TLabel", background=UI["panel_3"], foreground=UI["dim"])
         style.configure("Muted.TLabel", background=UI["bg"], foreground=UI["muted"])
         style.configure("TButton", padding=(10, 7), background=UI["panel_2"], foreground=UI["text"])
         style.map("TButton", background=[("active", UI["border"]), ("pressed", UI["border"])])
@@ -227,27 +256,62 @@ class DesktopApp:
         self._build_chat(left)
         self._build_right_tabs(right)
 
-    def _build_header(self, parent: ttk.Frame) -> None:
-        header = ttk.Frame(parent, style="SoftCard.TFrame", padding=(14, 12))
-        header.pack(fill=tk.X)
-        title_box = ttk.Frame(header, style="SoftCard.TFrame")
-        title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(title_box, text="JAV", style="SoftCard.TLabel", font=("Segoe UI", 24, "bold")).pack(anchor="w")
-        ttk.Label(
-            title_box,
-            text="Personal Jarvis-like assistant — voice • memory • vision • actions • monitor",
-            style="Muted.SoftCard.TLabel",
-            font=("Segoe UI", 10),
-        ).pack(anchor="w")
+    def _bind_shortcuts(self) -> None:
+        self.root.bind("<Control-l>", lambda _e: self._focus_chat())
+        self.root.bind("<Control-k>", lambda _e: self._prefill(""))
+        self.root.bind("<F5>", lambda _e: self.model_status())
+        self.root.bind("<F6>", lambda _e: self.voice_setup_report())
+        self.root.bind("<F9>", lambda _e: self.system_diagnose())
 
-        actions = ttk.Frame(header, style="SoftCard.TFrame")
+    def _focus_chat(self) -> None:
+        try:
+            self.input_entry.focus_set()
+        except Exception:
+            pass
+
+    def _build_header(self, parent: ttk.Frame) -> None:
+        header = ttk.Frame(parent, style="Hero.TFrame", padding=(18, 14))
+        header.pack(fill=tk.X)
+
+        left = ttk.Frame(header, style="Hero.TFrame")
+        left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        brand_row = ttk.Frame(left, style="Hero.TFrame")
+        brand_row.pack(fill=tk.X)
+        ttk.Label(brand_row, text="◈ JAV", style="Hero.TLabel", font=("Segoe UI", 28, "bold")).pack(side=tk.LEFT)
+        ttk.Label(
+            brand_row,
+            text="Jarvis-like local companion",
+            style="Muted.Hero.TLabel",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(side=tk.LEFT, padx=(12, 0), pady=(12, 0))
+        ttk.Label(
+            left,
+            text="Voice • Memory • Vision • Actions • Safety • Ambient perception",
+            style="Muted.Hero.TLabel",
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(2, 8))
+
+        self.header_pills: Dict[str, StatusPill] = {}
+        pills = ttk.Frame(left, style="Hero.TFrame")
+        pills.pack(anchor="w")
+        for key, label, value in [
+            ("kernel", "Kernel", "booting"),
+            ("voice", "Voice", "stopped"),
+            ("ambient", "Ambient", "off"),
+            ("models", "Models", "checking"),
+        ]:
+            pill = StatusPill(pills, label, value)
+            pill.pack(side=tk.LEFT, padx=(0, 8))
+            self.header_pills[key] = pill
+
+        actions = ttk.Frame(header, style="Hero.TFrame")
         actions.pack(side=tk.RIGHT)
-        self.status_label = ttk.Label(actions, text="starting…", style="Muted.SoftCard.TLabel")
-        self.status_label.grid(row=0, column=0, columnspan=4, sticky="e", pady=(0, 6))
+        self.status_label = ttk.Label(actions, text="starting…", style="Muted.Hero.TLabel", font=("Segoe UI", 9, "bold"))
+        self.status_label.grid(row=0, column=0, columnspan=4, sticky="e", pady=(0, 8))
         ttk.Button(actions, text="⚙ Settings", command=self.open_settings).grid(row=1, column=0, padx=3)
         ttk.Button(actions, text="🧠 Models", command=self._open_model_wizard).grid(row=1, column=1, padx=3)
         ttk.Button(actions, text="🎙 Voice", command=self.toggle_voice_process).grid(row=1, column=2, padx=3)
-        ttk.Button(actions, text="🔔 Test", command=lambda: self._notify("JAV", "Assistant Shell notifications are working.")).grid(row=1, column=3, padx=3)
+        ttk.Button(actions, text="🩺 Doctor", command=self.system_diagnose).grid(row=1, column=3, padx=3)
 
     def _build_status_cards(self, parent: ttk.Frame) -> None:
         grid = ttk.Frame(parent)
@@ -256,6 +320,8 @@ class DesktopApp:
         for i, key_title in enumerate([
             ("kernel", "Kernel"),
             ("models", "Models"),
+            ("voice", "Voice"),
+            ("ambient", "Ambient"),
             ("system", "System"),
             ("tasks", "Tasks"),
             ("approvals", "Approvals"),
@@ -272,9 +338,20 @@ class DesktopApp:
         chat_card.pack(fill=tk.BOTH, expand=True)
         row = ttk.Frame(chat_card, style="Card.TFrame")
         row.pack(fill=tk.X)
-        ttk.Label(row, text="Conversation", style="Card.TLabel", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
-        ttk.Label(row, text="natural language commands work here", style="Muted.Card.TLabel").pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Label(row, text="Conversation", style="Card.TLabel", font=("Segoe UI", 15, "bold")).pack(side=tk.LEFT)
+        ttk.Label(row, text="ask naturally — actions still pass safety gates", style="Muted.Card.TLabel").pack(side=tk.LEFT, padx=(10, 0))
         ttk.Button(row, text="Clear", command=self._clear_chat).pack(side=tk.RIGHT)
+
+        shortcuts = ttk.Frame(chat_card, style="Card.TFrame")
+        shortcuts.pack(fill=tk.X, pady=(8, 0))
+        for label, prompt in [
+            ("🩺 Diagnose", "перевір систему"),
+            ("👁 Screen", "проаналізуй екран і скажи що робити"),
+            ("🧠 Models", "покажи статус моделей"),
+            ("🛠 Fix project", "розберися з помилками в ."),
+            ("🌐 Research", "пошукай в інтернеті "),
+        ]:
+            ttk.Button(shortcuts, text=label, command=lambda p=prompt: self._prefill(p)).pack(side=tk.LEFT, padx=(0, 6))
 
         self.chat = scrolledtext.ScrolledText(
             chat_card, wrap=tk.WORD, state=tk.DISABLED, bg=UI["input"], fg=UI["text"],
@@ -377,6 +454,11 @@ class DesktopApp:
         safety = self._section(tab, "Safety level", "Use the lowest level that can complete the task.")
         for lvl, text in [(1, "L1 Read-only"), (4, "L4 File write in workspace"), (5, "L5 Allowlisted shell")]:
             ttk.Button(safety, text=text, command=lambda l=lvl: self.set_safety(l)).pack(fill=tk.X, pady=3)
+
+        ambient = self._section(tab, "Ambient perception", "Background screen awareness. Keep privacy mode on when using sensitive apps.")
+        ttk.Button(ambient, text="👁 Ambient status", command=lambda: self._send_text("/ambient-status")).pack(fill=tk.X, pady=3)
+        ttk.Button(ambient, text="🎚 Emotional voice status", command=lambda: self._send_text("/emotion-voice-status")).pack(fill=tk.X, pady=3)
+        ttk.Button(ambient, text="🔒 Privacy reminder", command=lambda: self._append("system", "Ambient perception is local. Keep SCREEN_AMBIENT_PRIVACY_MODE=true and exclude banking/password apps if needed.")).pack(fill=tk.X, pady=3)
 
         monitor = self._section(tab, "Companion status", "System monitor, runtime, proactive assistant and daily summary.")
         for text, cmd in [
@@ -587,9 +669,10 @@ class DesktopApp:
 
     def _append(self, role: str, text: str) -> None:
         self.chat.configure(state=tk.NORMAL)
-        prefix = {"user": "You", "assistant": "Jarvis", "system": "System", "event": "Event"}.get(role, role)
+        prefix = {"user": "You", "assistant": "JAV", "system": "System", "event": "Event"}.get(role, role)
         tag = role if role in {"user", "assistant", "system", "event"} else "body"
-        self.chat.insert(tk.END, f"{prefix}: ", tag)
+        stamp = time.strftime("%H:%M")
+        self.chat.insert(tk.END, f"[{stamp}] {prefix}\n", tag)
         self.chat.insert(tk.END, f"{text}\n\n", "body")
         self.chat.see(tk.END)
         self.chat.configure(state=tk.DISABLED)
@@ -759,24 +842,39 @@ class DesktopApp:
             self.status_label.configure(text="booting kernel…")
             for key, card in self.cards.items():
                 card.set("starting", "kernel booting")
+            if hasattr(self, "header_pills"):
+                self.header_pills.get("kernel").set("booting")
             return
+
         state = self.api.get_state()
         running = state.get("running")
         safety = state.get("core_state", {}).get("safety_level", "?")
         mods = len(self.kernel.modules)
-        self.status_label.configure(text=f"running={running} | modules={mods} | safety=L{safety}")
-        self.cards["kernel"].set(f"{'ON' if running else 'OFF'} / {mods} mods", f"Safety L{safety}")
+        self.status_label.configure(text=f"running={running} • modules={mods} • safety=L{safety}")
+        self.cards["kernel"].set(f"{'ONLINE' if running else 'OFF'}", f"{mods} modules • Safety L{safety}")
+        if hasattr(self, "header_pills"):
+            self.header_pills["kernel"].set("online" if running else "offline")
 
         status = self._cached_model_status
         if status is None:
-            self.cards["models"].set("checking…", "loading")
+            self.cards["models"].set("checking…", "model router")
+            if hasattr(self, "header_pills"):
+                self.header_pills["models"].set("checking")
         else:
             roles = status.get("roles") or {}
             available = sum(1 for r in roles.values() if r.get("available"))
-            self.cards["models"].set(
-                f"{available}/{len(roles)} roles",
-                str(status.get("profile") or "profile"),
-            )
+            profile = str(status.get("profile") or "custom")
+            self.cards["models"].set(f"{available}/{len(roles)} roles", profile)
+            if hasattr(self, "header_pills"):
+                self.header_pills["models"].set(f"{available}/{len(roles)}")
+
+        voice_text = self._voice_status_text()
+        self.cards["voice"].set(voice_text.split("\n", 1)[0], "wake / STT / TTS")
+        ambient_text = self._ambient_status_text()
+        self.cards["ambient"].set(ambient_text[0], ambient_text[1])
+        if hasattr(self, "header_pills"):
+            self.header_pills["voice"].set(voice_text.split("\n", 1)[0].replace("Voice: ", ""))
+            self.header_pills["ambient"].set(ambient_text[0])
 
         self.cards["approvals"].set(str(len(self.pending_approvals)), "pending confirmations")
         mem_dir = getattr(self.cfg.memory, "data_dir", "")
@@ -789,11 +887,32 @@ class DesktopApp:
             self.cards["system"].set("monitoring", "use Diagnose system")
         self.cards["tasks"].set(str(self._task_event_count), "task chain events")
 
-    def _update_voice_status(self) -> None:
+    def _voice_status_text(self) -> str:
         if self.voice_process and self.voice_process.poll() is None:
-            text = f"Voice: running pid={self.voice_process.pid}"
-        else:
-            text = "Voice: stopped"
+            return f"Voice: running pid={self.voice_process.pid}"
+        # Also read runtime status written by the voice loop when available.
+        try:
+            status_path = Path(getattr(self.cfg, "persistence_dir", "~/.jarvis_brain")).expanduser() / "runtime_voice_status.json"
+            if status_path.exists():
+                data = json.loads(status_path.read_text(encoding="utf-8", errors="replace"))
+                state = str(data.get("state") or "stopped")
+                return f"Voice: {state}"
+        except Exception:
+            pass
+        return "Voice: stopped"
+
+    def _ambient_status_text(self) -> tuple[str, str]:
+        try:
+            screen = getattr(self.cfg, "screen", None)
+            enabled = bool(getattr(screen, "auto_watch_enabled", False))
+            proactive = bool(getattr(screen, "ambient_proactive", False))
+            privacy = bool(getattr(screen, "ambient_privacy_mode", True))
+            return ("ON" if enabled else "OFF", f"proactive={'on' if proactive else 'off'} • privacy={'on' if privacy else 'off'}")
+        except Exception:
+            return ("unknown", "screen config unavailable")
+
+    def _update_voice_status(self) -> None:
+        text = self._voice_status_text()
         try:
             self.voice_status_label.configure(text=text)
         except Exception:
@@ -828,6 +947,16 @@ class DesktopApp:
             self.action_status(); return
         if lower in {"/workspace", "/workspace-info"}:
             self._append("system", "Current workspace: " + self._workspace_path_text() + "\nSafe file actions only operate inside this folder. Use Home → Change workspace or Import project into workspace."); return
+        if lower in {"/ambient-status", "/ambient"}:
+            status, detail = self._ambient_status_text()
+            self._append("system", f"Ambient perception: {status}\n{detail}")
+            return
+        if lower in {"/emotion-voice-status", "/emotional-voice"}:
+            voice_cfg = getattr(self.cfg, "voice", None)
+            enabled = getattr(voice_cfg, "emotional_tts_enabled", False)
+            strength = getattr(voice_cfg, "emotional_tts_strength", "?")
+            self._append("system", f"Emotional voice: {'ON' if enabled else 'OFF'}\nStrength: {strength}")
+            return
         if lower in {"/memory", "/memory-status", "/storage"}:
             self.memory_status(); return
         if lower in {"/models", "/model-status", "/model-health", "/model-profile"}:

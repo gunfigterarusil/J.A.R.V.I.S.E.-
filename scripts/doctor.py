@@ -209,43 +209,6 @@ def run_checks(root: Optional[Path] = None) -> List[DoctorCheck]:
             category="optional",
         ))
 
-
-    # ── Ambient perception + emotional TTS status ───────────────────────────
-    try:
-        from config import KernelConfig
-        cfg = KernelConfig()
-        screen = getattr(cfg, "screen", None)
-        voice = getattr(cfg, "voice", None)
-        if screen is not None:
-            results.append(DoctorCheck(
-                name="Ambient screen watch",
-                passed=True,
-                detail=(
-                    f"enabled={getattr(screen, 'auto_watch_enabled', False)}, "
-                    f"interval={getattr(screen, 'ambient_watch_interval', 'n/a')}s, "
-                    f"privacy={getattr(screen, 'ambient_privacy_mode', True)}, "
-                    f"store_screenshots={getattr(screen, 'ambient_store_screenshots', False)}"
-                ),
-                category="optional",
-            ))
-        if voice is not None:
-            results.append(DoctorCheck(
-                name="Emotional TTS modulation",
-                passed=True,
-                detail=(
-                    f"enabled={getattr(voice, 'emotional_tts_enabled', True)}, "
-                    f"strength={getattr(voice, 'emotional_tts_strength', 'n/a')}"
-                ),
-                category="optional",
-            ))
-    except Exception as exc:
-        results.append(DoctorCheck(
-            name="Ambient/emotional voice config",
-            passed=False,
-            detail=repr(exc),
-            category="optional",
-        ))
-
     return results
 
 
@@ -356,29 +319,6 @@ def main() -> int:
             check(item.name, item.status in {"OK", "INFO"}, item.detail + (("; " + item.fix) if item.fix and item.status in {"WARN", "FAIL"} else ""), severity=sev)
     except Exception as exc:
         check("voice setup diagnostics", False, repr(exc), severity="optional")
-
-    print("\nAmbient / emotional voice:")
-    try:
-        from config import KernelConfig
-        cfg = KernelConfig()
-        screen = getattr(cfg, "screen", None)
-        voice = getattr(cfg, "voice", None)
-        if screen is not None:
-            check(
-                "Ambient screen watch",
-                True,
-                f"enabled={getattr(screen, 'auto_watch_enabled', False)}, interval={getattr(screen, 'ambient_watch_interval', 'n/a')}s, privacy={getattr(screen, 'ambient_privacy_mode', True)}, store_screenshots={getattr(screen, 'ambient_store_screenshots', False)}",
-                severity="info",
-            )
-        if voice is not None:
-            check(
-                "Emotional TTS modulation",
-                True,
-                f"enabled={getattr(voice, 'emotional_tts_enabled', True)}, strength={getattr(voice, 'emotional_tts_strength', 'n/a')}",
-                severity="info",
-            )
-    except Exception as exc:
-        check("Ambient/emotional voice config", False, repr(exc), severity="optional")
 
     print("\nModel router:")
     try:

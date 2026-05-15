@@ -328,11 +328,10 @@ class ScreenConfig:
     ambient_watch_interval: float = field(default_factory=lambda: float(os.environ.get("SCREEN_AMBIENT_INTERVAL", "8.0")))
     ambient_min_gap_after_speech: float = field(default_factory=lambda: float(os.environ.get("SCREEN_AMBIENT_SPEECH_GAP", "3.0")))
     ambient_proactive: bool = field(default_factory=lambda: os.environ.get("SCREEN_AMBIENT_PROACTIVE", "true").lower() == "true")
-    # V17.1 stability/privacy controls for background screen watching.
     ambient_privacy_mode: bool = field(default_factory=lambda: os.environ.get("SCREEN_AMBIENT_PRIVACY_MODE", "true").lower() == "true")
     ambient_store_screenshots: bool = field(default_factory=lambda: os.environ.get("SCREEN_AMBIENT_STORE_SCREENSHOTS", "false").lower() == "true")
-    ambient_proactive_cooldown: float = field(default_factory=lambda: float(os.environ.get("SCREEN_AMBIENT_PROACTIVE_COOLDOWN", "120.0")))
-    ambient_same_error_cooldown: float = field(default_factory=lambda: float(os.environ.get("SCREEN_AMBIENT_SAME_ERROR_COOLDOWN", "300.0")))
+    ambient_proactive_cooldown: float = field(default_factory=lambda: float(os.environ.get("SCREEN_AMBIENT_PROACTIVE_COOLDOWN", "120")))
+    ambient_same_error_cooldown: float = field(default_factory=lambda: float(os.environ.get("SCREEN_AMBIENT_SAME_ERROR_COOLDOWN", "300")))
     ambient_excluded_apps: str = field(default_factory=lambda: os.environ.get("SCREEN_AMBIENT_EXCLUDED_APPS", ""))
     ambient_pause_on_sensitive: bool = field(default_factory=lambda: os.environ.get("SCREEN_AMBIENT_PAUSE_ON_SENSITIVE", "true").lower() == "true")
 

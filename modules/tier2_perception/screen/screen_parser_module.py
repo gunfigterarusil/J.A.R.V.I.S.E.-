@@ -15,7 +15,6 @@ future GUI automation must go through V7 safety and explicit approval gates.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import re
@@ -125,15 +124,15 @@ class ScreenParserModule(CognitiveModule):
         self._last_window: str = ""
         self._last_errors: List[str] = []
         self._ambient_baseline_ready: bool = False
-        self._last_proactive_ts: float = 0.0
-        self._last_error_hash: str = ""
-        self._last_error_alert_ts: float = 0.0
         self._ambient_privacy_mode: bool = True
         self._ambient_store_screenshots: bool = False
         self._ambient_proactive_cooldown: float = 120.0
         self._ambient_same_error_cooldown: float = 300.0
         self._ambient_excluded_apps: List[str] = []
         self._ambient_pause_on_sensitive: bool = True
+        self._last_proactive_ts: float = 0.0
+        self._last_error_hash: str = ""
+        self._last_error_ts: float = 0.0
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -181,7 +180,7 @@ class ScreenParserModule(CognitiveModule):
             result = self._read_screen(event)
             if event.data.get("reason") == "ambient_perception":
                 self._ambient_pending = False
-                self._handle_ambient_postprocess(result)
+                self._check_ambient_change(result)
             self._emit_result(result, event)
         elif event.type == "screen_focus":
             logger.info("[ScreenParser] screen_focus received")
@@ -526,40 +525,34 @@ class ScreenParserModule(CognitiveModule):
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def _handle_ambient_postprocess(self, result: ScreenReadResult) -> None:
-        """Apply privacy cleanup and ambient change detection after a silent capture."""
-        if not self._ambient_store_screenshots and result.screenshot_path:
-            try:
-                Path(result.screenshot_path).unlink(missing_ok=True)
-                result.screenshot_path = ""
-            except Exception as exc:
-                logger.debug("[ScreenParser] Could not remove ambient screenshot: %s", exc)
-        self._check_ambient_change(result)
-
-    def _contains_sensitive_screen(self, result: ScreenReadResult) -> bool:
-        if not self._ambient_privacy_mode or not self._ambient_pause_on_sensitive:
-            return False
-        text = f"{result.active_window}\n{result.raw_text}\n{result.summary}".lower()
-        sensitive_words = [
-            "password", "пароль", "api key", "apikey", "token", "secret",
-            "credit card", "card number", "cvv", "bank", "банкінг", "payment",
-            "checkout", "2fa", "otp", "private key", "seed phrase", "mnemonic",
+    def _is_sensitive_screen(self, result: ScreenReadResult) -> bool:
+        text = " ".join([
+            str(result.active_window or ""),
+            str(result.summary or ""),
+            " ".join(result.important_blocks or []),
+        ]).lower()
+        sensitive_terms = [
+            "password", "passwd", "пароль", "логін", "login", "token", "api key", "apikey",
+            "secret", "bank", "банкінг", "payment", "card number", "cvv", "credit card",
+            "private key", "seed phrase", "recovery phrase",
         ]
-        return any(word in text for word in sensitive_words)
-
-    def _is_excluded_app(self, active_window: str) -> bool:
-        if not active_window or not self._ambient_excluded_apps:
-            return False
-        win = active_window.lower()
-        return any(app and app in win for app in self._ambient_excluded_apps)
-
-    def _ambient_error_hash(self, errors: List[str]) -> str:
-        joined = "\n".join(errors[:5]).strip().lower()
-        if not joined:
-            return ""
-        return hashlib.sha256(joined.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        return any(term in text for term in sensitive_terms)
 
     def _check_ambient_change(self, result: ScreenReadResult) -> None:
+        now = time.time()
+        window_l = (result.active_window or "").lower()
+        if any(app in window_l for app in self._ambient_excluded_apps):
+            logger.debug("[ScreenParser] Ambient skipped excluded window: %s", result.active_window)
+            return
+        if self._ambient_privacy_mode and self._ambient_pause_on_sensitive and self._is_sensitive_screen(result):
+            logger.info("[ScreenParser] Ambient skipped sensitive screen")
+            # Update baseline enough to avoid repeated alerts when leaving sensitive screen.
+            self._last_window = result.active_window
+            self._last_ctx = result.likely_context
+            self._last_errors = list(result.important_blocks)
+            self._ambient_baseline_ready = True
+            return
+
         changed_reasons: List[str] = []
         if result.active_window != self._last_window:
             changed_reasons.append("app_switched")
@@ -569,39 +562,29 @@ class ScreenParserModule(CognitiveModule):
         if new_errors:
             changed_reasons.append("error_detected")
 
-        # First ambient capture establishes a baseline only. Without this, every
-        # startup looks like an app switch/context change and causes noisy alerts.
-        if not self._ambient_baseline_ready:
-            self._ambient_baseline_ready = True
-            self._last_window = result.active_window
-            self._last_ctx = result.likely_context
-            self._last_errors = list(result.important_blocks)
-            logger.debug("[ScreenParser] Ambient baseline captured: window=%r ctx=%r", self._last_window, self._last_ctx)
-            return
-
         self._last_window = result.active_window
         self._last_ctx = result.likely_context
         self._last_errors = list(result.important_blocks)
 
-        if not changed_reasons or not self._ambient_proactive or not self.kernel:
-            return
-        if self._is_excluded_app(result.active_window):
-            logger.debug("[ScreenParser] Ambient proactive skipped: excluded app %r", result.active_window)
-            return
-        if self._contains_sensitive_screen(result):
-            logger.info("[ScreenParser] Ambient proactive paused on sensitive screen")
+        # First ambient capture establishes a baseline only. Otherwise JAV would
+        # always announce an app/context change immediately after enabling watch.
+        if not self._ambient_baseline_ready:
+            self._ambient_baseline_ready = True
+            logger.debug("[ScreenParser] Ambient baseline captured")
             return
 
-        now = time.time()
+        if not changed_reasons or not self._ambient_proactive or not self.kernel:
+            return
+
         if now - self._last_proactive_ts < self._ambient_proactive_cooldown:
             return
 
-        error_hash = self._ambient_error_hash(new_errors)
-        if error_hash and error_hash == self._last_error_hash and now - self._last_error_alert_ts < self._ambient_same_error_cooldown:
+        error_hash = "|".join(new_errors[:3])
+        if new_errors and error_hash == self._last_error_hash and now - self._last_error_ts < self._ambient_same_error_cooldown:
             return
-        if error_hash:
+        if new_errors:
             self._last_error_hash = error_hash
-            self._last_error_alert_ts = now
+            self._last_error_ts = now
 
         importance = 0.7 if "error_detected" in changed_reasons else 0.4
         suggestion = result.recommended_actions[0] if result.recommended_actions else ""
@@ -617,6 +600,7 @@ class ScreenParserModule(CognitiveModule):
                     "suggestion": suggestion,
                     "importance": importance,
                     "source": "ambient_perception",
+                    "privacy_mode": self._ambient_privacy_mode,
                 },
                 source_module=self.module_id,
             ),
@@ -731,21 +715,6 @@ class ScreenParserModule(CognitiveModule):
             "last_summary": self.last_result.get("summary", "")[:180],
             "last_ui_elements": len(self.last_result.get("ui_elements", []) or []),
             "last_active_window": self.last_result.get("active_window", ""),
-            "ambient": {
-                "enabled": self.auto_watch_enabled,
-                "interval": self._ambient_interval,
-                "speech_gap": self._ambient_speech_gap,
-                "proactive": self._ambient_proactive,
-                "privacy_mode": self._ambient_privacy_mode,
-                "store_screenshots": self._ambient_store_screenshots,
-                "baseline_ready": self._ambient_baseline_ready,
-                "pending": self._ambient_pending,
-                "last_window": self._last_window,
-                "last_context": self._last_ctx,
-                "excluded_apps": self._ambient_excluded_apps,
-                "proactive_cooldown": self._ambient_proactive_cooldown,
-                "same_error_cooldown": self._ambient_same_error_cooldown,
-            },
         })
         return base
 
