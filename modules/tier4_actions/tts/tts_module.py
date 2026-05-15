@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any, Dict, Protocol
 
 from core import CognitiveModule, CognitiveEvent as Event, Priority
@@ -39,6 +40,7 @@ class TTSModule(CognitiveModule):
         self._last_error = ""
         self._active_backend = ""
         self._configured_backend = "auto"
+        self._stop_event: threading.Event = threading.Event()
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -51,7 +53,7 @@ class TTSModule(CognitiveModule):
         )
         kernel.event_bus.register_consumer(
             self.module_id,
-            ["response_generated", "tts_say"],
+            ["response_generated", "tts_say", "tts_interrupt"],
         )
         if not self._voice_enabled:
             logger.info("[TTS] Disabled. Start with --voice and VOICE_TTS_ENABLED=true to enable output.")
@@ -87,6 +89,9 @@ class TTSModule(CognitiveModule):
         logger.info("[TTS] Enabled with backend mode: %s", self._configured_backend)
 
     async def on_event(self, event: Event) -> None:
+        if event.type == "tts_interrupt":
+            self._stop_event.set()
+            return
         if not self._voice_enabled or not self._backends:
             return
         if event.type not in {"response_generated", "tts_say"}:
@@ -99,10 +104,12 @@ class TTSModule(CognitiveModule):
 
     async def _speak(self, text: str, turn_id: str = "") -> None:
         async with self._speak_lock:
+            self._stop_event.clear()
             errors: list[str] = []
             for name, backend in self._backends:
                 try:
-                    await asyncio.to_thread(backend.speak, text)
+                    _ev = self._stop_event
+                    await asyncio.to_thread(lambda: backend.speak(text, stop_event=_ev))
                     self._active_backend = name
                     self._last_error = ""
                     if self.kernel:

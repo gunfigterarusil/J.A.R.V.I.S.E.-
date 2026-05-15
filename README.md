@@ -45,6 +45,33 @@ data/brain/logs/desktop_crash.log
 Нормально, якщо doctor показує `FAIL` для optional речей, які ти ще не ставив, наприклад `Piper`, `Ollama`, `sounddevice`, `faster-whisper`. Це ламає тільки відповідну функцію, а не все ядро.
 
 
+
+## Сучасний інтерфейс програми
+
+У цій збірці desktop shell оновлено під щоденне використання:
+
+- вікно відкривається одразу, ядро стартує у фоні;
+- головний екран має зрозумілий блок **Start here**;
+- основні дії винесені в кнопки: діагностика, моделі, памʼять, екран, задачі;
+- чат приймає звичайні фрази, не тільки slash-команди;
+- є вкладки **Home / Commands / Tasks / Approvals / Memory / Models / Doctor / Logs**;
+- risky actions підтверджуються через **Approvals**;
+- помилки запуску видно через **Doctor** і **Logs**.
+
+Найпростіший старт:
+
+```bat
+run_desktop.bat
+```
+
+Або з коду:
+
+```bash
+python main.py --desktop
+```
+
+Перший запуск відкриє setup wizard, якщо `.jav_setup_complete` ще не створено. Там можна вибрати portable/installed режим, папку памʼяті, workspace і профіль моделей.
+
 ## 1. Що він уміє зараз
 
 | Напрям | Статус |
@@ -65,6 +92,7 @@ data/brain/logs/desktop_crash.log
 | Runtime service + watchdog | ✅ MVP |
 | Portable mode | ✅ |
 | Modular model/API router | ✅ |
+| Safety constitution / ethical layer | ✅ |
 
 ---
 

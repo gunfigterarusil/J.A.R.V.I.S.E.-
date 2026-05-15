@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any, Dict, Optional
 
 from core.event_bus import CognitiveEvent as Event, Priority
@@ -37,6 +38,14 @@ class VoiceLoop:
         self.listen_after_response_delay = float(getattr(cfg, "listen_after_response_delay", 0.35))
         self.tts_enabled = bool(getattr(cfg, "tts_enabled", True))
         self.tts_backend = str(getattr(cfg, "tts_backend", "auto") or "auto").strip().lower()
+
+        self.vad_enabled = bool(getattr(cfg, "vad_enabled", True))
+        self.vad_max_silence_ms = int(getattr(cfg, "vad_max_silence_ms", 700))
+        self.vad_min_speech_ms = int(getattr(cfg, "vad_min_speech_ms", 150))
+        self.vad_max_duration_s = float(getattr(cfg, "vad_max_duration_s", 30.0))
+        _raw_phrases = str(getattr(cfg, "interrupt_phrases", "stop,зупинись,стоп") or "")
+        self.interrupt_phrases = {p.strip().lower() for p in _raw_phrases.split(",") if p.strip()}
+        self._vad_stop = threading.Event()
 
         self._running = False
         self._response_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
@@ -69,7 +78,16 @@ class VoiceLoop:
             while self._running and getattr(self.kernel, "running", True):
                 try:
                     self._emit_status("listening", "Recording microphone chunk")
-                    text = await asyncio.to_thread(self._stt.listen_once)
+                    if self.vad_enabled:
+                        text = await asyncio.to_thread(
+                            self._stt.listen_with_vad,
+                            self.vad_max_silence_ms,
+                            self.vad_min_speech_ms,
+                            self.vad_max_duration_s,
+                            self._vad_stop,
+                        )
+                    else:
+                        text = await asyncio.to_thread(self._stt.listen_once)
                 except STTUnavailable as exc:
                     logger.error("[Voice] %s", exc)
                     self._emit_status("error", str(exc))
@@ -85,6 +103,28 @@ class VoiceLoop:
                 if not text:
                     await asyncio.sleep(0.05)
                     continue
+
+                if self._is_interrupt_command(text):
+                    self.kernel.event_bus.emit(
+                        Event(
+                            type="tts_interrupt",
+                            data={"reason": "voice_interrupt_phrase"},
+                            source_module="voice_loop",
+                        ),
+                        Priority.REALTIME,
+                    )
+                    self._emit_status("listening", "TTS interrupted by user")
+                    continue
+
+                # Auto-interrupt any ongoing TTS when a new utterance starts
+                self.kernel.event_bus.emit(
+                    Event(
+                        type="tts_interrupt",
+                        data={"reason": "new_utterance"},
+                        source_module="voice_loop",
+                    ),
+                    Priority.REALTIME,
+                )
 
                 original_text = text
                 text = self._apply_wake_word(text)
@@ -164,6 +204,11 @@ class VoiceLoop:
         idx = lower.find(self.wake_word)
         command = (text[:idx] + text[idx + len(self.wake_word):]).strip(" ,.:;!-—")
         return command or text
+
+    def _is_interrupt_command(self, text: str) -> bool:
+        if not self.interrupt_phrases:
+            return False
+        return text.lower().strip().rstrip(".,!?") in self.interrupt_phrases
 
     def _is_screen_read_command(self, text: str) -> bool:
         lower = text.lower().strip()

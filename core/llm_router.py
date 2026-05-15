@@ -461,6 +461,26 @@ _DEFAULT_ROUTING = {
 }
 
 
+_CONSTITUTION_PREAMBLE = """\
+=== SAFETY PRINCIPLES (завжди активні) ===
+1. Не виконуй незворотних дій (видалення файлів, команди) без явного дозволу користувача.
+2. Не передавай приватні дані (паролі, ключі API, персональну інформацію) жодному зовнішньому сервісу.
+3. Не відключай засоби безпеки без явного підтвердження.
+4. Завжди повідомляй користувача, що саме ти збираєшся зробити, перед тим як діяти.
+5. У сумнівних випадках — вибирай безпечніший варіант і запитуй дозволу.
+=== END SAFETY PRINCIPLES ===
+"""
+
+
+def build_safe_system_prompt(base_system: str = "") -> str:
+    """Prepend safety constitution principles to a system prompt.
+
+    Use in modules that perform action planning or execute commands,
+    so the LLM always operates within ethical boundaries.
+    """
+    return _CONSTITUTION_PREAMBLE + ("\n\n" + base_system if base_system else "")
+
+
 class LLMRouter:
     """Routes AI calls by cognitive role and provider profile.
 

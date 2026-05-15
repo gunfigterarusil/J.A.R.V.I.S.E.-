@@ -90,6 +90,34 @@ def _default_screenshot_dir() -> str:
 
 
 @dataclass
+class SafetyConstitutionConfig:
+    """V15.4 — Asimov-inspired ethical safety principles.
+
+    Technical hard rules (no_mass_deletion, no_disk_operations, etc.) are
+    always active and cannot be toggled.  Ethical rules can be controlled
+    per-category here.
+    """
+    ethical_rules_enabled: bool = field(
+        default_factory=lambda: _env_bool("SAFETY_CONSTITUTION_ETHICAL_RULES", "true")
+    )
+    inject_principles_into_prompts: bool = field(
+        default_factory=lambda: _env_bool("SAFETY_INJECT_PRINCIPLES", "true")
+    )
+    no_private_data: bool = field(
+        default_factory=lambda: _env_bool("SAFETY_ETHICS_PRIVATE_DATA", "true")
+    )
+    no_security_prefs: bool = field(
+        default_factory=lambda: _env_bool("SAFETY_ETHICS_SECURITY_PREFS", "true")
+    )
+    no_silent_background: bool = field(
+        default_factory=lambda: _env_bool("SAFETY_ETHICS_TRANSPARENCY", "true")
+    )
+    no_data_harm: bool = field(
+        default_factory=lambda: _env_bool("SAFETY_ETHICS_DATA_HARM", "true")
+    )
+
+
+@dataclass
 class SubjectiveFieldDefaults:
     """Default starting values for the SubjectiveField."""
     safety: float = 0.7
@@ -202,6 +230,11 @@ class VoiceConfig:
     record_seconds: float = field(default_factory=lambda: float(os.environ.get("VOICE_RECORD_SECONDS", "5")))
     energy_threshold: float = field(default_factory=lambda: float(os.environ.get("VOICE_ENERGY_THRESHOLD", "0.005")))
     wake_word: str = field(default_factory=lambda: os.environ.get("VOICE_WAKE_WORD", ""))
+    vad_enabled: bool = field(default_factory=lambda: os.environ.get("VOICE_VAD_ENABLED", "true").lower() == "true")
+    vad_max_silence_ms: int = field(default_factory=lambda: int(os.environ.get("VOICE_VAD_MAX_SILENCE_MS", "700")))
+    vad_min_speech_ms: int = field(default_factory=lambda: int(os.environ.get("VOICE_VAD_MIN_SPEECH_MS", "150")))
+    vad_max_duration_s: float = field(default_factory=lambda: float(os.environ.get("VOICE_VAD_MAX_DURATION_S", "30")))
+    interrupt_phrases: str = field(default_factory=lambda: os.environ.get("VOICE_INTERRUPT_PHRASES", "stop,зупинись,стоп"))
     print_transcript: bool = field(default_factory=lambda: os.environ.get("VOICE_PRINT_TRANSCRIPT", "true").lower() == "true")
     response_timeout: float = field(default_factory=lambda: float(os.environ.get("VOICE_RESPONSE_TIMEOUT", "90")))
     tts_wait_timeout: float = field(default_factory=lambda: float(os.environ.get("VOICE_TTS_WAIT_TIMEOUT", "45")))
@@ -664,6 +697,9 @@ class KernelConfig:
     safety_default_level: int = 1        # L1_READ_SCREEN — default at startup
     sandbox_extra_paths: List[str] = field(default_factory=list)  # user-added write paths
     safety_audit_enabled: bool = True    # set False only for unit-test environments
+    safety_constitution: SafetyConstitutionConfig = field(
+        default_factory=SafetyConstitutionConfig
+    )
 
     # ------------------------------------------------------------------
     # Convenience property

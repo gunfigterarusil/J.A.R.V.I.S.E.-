@@ -44,7 +44,7 @@ class Pyttsx3TTS:
         except Exception as exc:  # pragma: no cover - depends on host audio drivers
             raise Pyttsx3Unavailable(f"pyttsx3 failed to initialize: {exc}") from exc
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, stop_event=None) -> None:  # stop_event not supported
         text = (text or "").strip()
         if not text:
             return

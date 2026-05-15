@@ -1,5 +1,13 @@
 # Changelog
 
+## V15.4 — Safety Constitution + Modern Desktop Shell Polish
+
+- Confirmed and documented the Asimov-inspired Safety Constitution layer.
+- Safety Constitution is wired into the action firewall before sandbox/risk/permission checks.
+- Desktop UI was visually refreshed: darker modern palette, product-like header, clearer Home tab, improved chat typography, icon-labeled tabs, and safer quick actions.
+- Added clearer README guidance for the modern desktop shell, first-launch wizard, Doctor and Logs workflow.
+- Kept the UI pure Tkinter/ttk to avoid heavy dependencies and preserve portable builds.
+
 ## V15.3 — Installer / Portable / Startup Fix
 
 - Added proper portable-aware build flow with `JAV.exe` and `JAV-Console.exe`.
@@ -11,8 +19,6 @@
 - Fixed relative portable paths so `.env` paths like `data/brain` resolve against the application folder, not the current terminal folder.
 - Desktop UI now opens the window first and boots the kernel in the background, avoiding the “console shows two lines and appears stuck” startup problem.
 - Added better source launchers: `run_desktop.bat`, `run_desktop_debug.bat`, `run_doctor.bat`, `run_install_deps.bat`.
-
-# CHANGELOG
 
 
 ## V15.2 — Startup stability / runtime doctor

@@ -140,9 +140,19 @@ def prepare_dist() -> None:
 
 
 def main() -> None:
-    # Clean previous relevant outputs so stale files do not mask build issues.
-    shutil.rmtree(APP_DIST, ignore_errors=True)
-    shutil.rmtree(DIST_ROOT / "JAV-Console", ignore_errors=True)
+    import argparse
+    parser = argparse.ArgumentParser(description="Build JAV desktop app with PyInstaller")
+    parser.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="Skip removing dist/JAV and dist/JAV-Console before building",
+    )
+    args = parser.parse_args()
+
+    if not args.no_clean:
+        shutil.rmtree(APP_DIST, ignore_errors=True)
+        shutil.rmtree(DIST_ROOT / "JAV-Console", ignore_errors=True)
+
     run_pyinstaller("JAV", windowed=True)
     run_pyinstaller("JAV-Console", windowed=False)
     merge_console_build()

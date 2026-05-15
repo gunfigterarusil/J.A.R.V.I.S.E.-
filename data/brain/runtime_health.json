@@ -1,0 +1,49 @@
+{
+  "version": "V9.5",
+  "reason": "manual_status",
+  "timestamp": 1778848085.1220157,
+  "pid": 4112,
+  "platform": "Linux-4.4.0-x86_64-with-glibc2.41",
+  "python": "3.13.5",
+  "service_mode": false,
+  "uptime_seconds": 0.21,
+  "kernel_running": true,
+  "module_count": 28,
+  "safety_level": 1,
+  "data_dir": "/mnt/data/jav_work/JAV/data/brain",
+  "data_dir_exists": true,
+  "workspace": "/mnt/data/jav_work/JAV/data/workspace",
+  "workspace_exists": true,
+  "heartbeat_file": "data/brain/runtime_heartbeat.json",
+  "recent_error_count": 0,
+  "recent_errors": [],
+  "kind": "health",
+  "checks": [
+    {
+      "name": "kernel_running",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "name": "modules_loaded",
+      "ok": true,
+      "detail": "28"
+    },
+    {
+      "name": "data_dir",
+      "ok": true,
+      "detail": "/mnt/data/jav_work/JAV/data/brain"
+    },
+    {
+      "name": "workspace",
+      "ok": true,
+      "detail": "/mnt/data/jav_work/JAV/data/workspace"
+    },
+    {
+      "name": "recent_errors",
+      "ok": true,
+      "detail": "0"
+    }
+  ],
+  "ok": true
+}

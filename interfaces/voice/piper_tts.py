@@ -7,6 +7,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
+import time
 import wave
 from pathlib import Path
 
@@ -104,8 +105,11 @@ class PiperTTS:
             raise PiperUnavailable(proc.stderr.strip() or "Piper failed without stderr")
         return wav_path
 
-    def play_file(self, wav_path: Path) -> None:
-        """Play WAV output with sounddevice when available, then OS fallbacks."""
+    def play_file(self, wav_path: Path, stop_event=None) -> None:
+        """Play WAV output with sounddevice when available, then OS fallbacks.
+
+        stop_event: optional threading.Event — stops playback early if set.
+        """
         try:
             import numpy as np  # type: ignore
             import sounddevice as sd  # type: ignore
@@ -118,6 +122,11 @@ class PiperTTS:
                 if channels > 1:
                     audio = audio.reshape(-1, channels)
             sd.play(audio, sample_rate)
+            while sd.get_stream().active:
+                if stop_event is not None and stop_event.is_set():
+                    sd.stop()
+                    return
+                time.sleep(0.05)
             sd.wait()
             return
         except Exception as exc:
@@ -138,10 +147,10 @@ class PiperTTS:
                 return
         raise PiperUnavailable("No audio playback backend found. Install sounddevice or aplay/paplay/ffplay.")
 
-    def speak(self, text: str, cleanup: bool = True) -> Path:
+    def speak(self, text: str, cleanup: bool = True, stop_event=None) -> Path:
         wav_path = self.synthesize_to_file(text)
         try:
-            self.play_file(wav_path)
+            self.play_file(wav_path, stop_event=stop_event)
         finally:
             if cleanup:
                 try:

@@ -809,6 +809,67 @@ def init_portable_layout(target: str | None = None) -> Path:
     env_path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
     return root
 
+def _init_watchdog() -> int:
+    """Register a Windows Startup shortcut that launches the JAV watchdog on login."""
+    from scripts.create_windows_startup_shortcut import main as _create
+    return _create()
+
+
+def _remove_watchdog() -> int:
+    """Remove the JAV watchdog Windows Startup shortcut if it exists."""
+    import os
+    appdata = os.environ.get("APPDATA", "")
+    if not appdata:
+        print("APPDATA is not set. This command is Windows-only.")
+        return 1
+    bat = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "JAV Watchdog.bat"
+    if bat.exists():
+        bat.unlink()
+        print(f"Removed watchdog startup shortcut: {bat}")
+    else:
+        print("Watchdog startup shortcut not found — nothing to remove.")
+    return 0
+
+
+def _is_first_launch(cfg: "KernelConfig") -> bool:
+    """Return True if no data directory exists and the setup sentinel is missing."""
+    sentinel = _APP_ROOT / ".jav_setup_complete"
+    if sentinel.exists():
+        return False
+    data_dir = Path(cfg.persistence_dir).expanduser()
+    # If data/brain already has content, user has used JAV before — skip wizard
+    if data_dir.exists() and any(data_dir.iterdir()):
+        return False
+    return True
+
+
+def _run_first_launch_wizard(cfg: "KernelConfig") -> None:
+    """Show the first-launch wizard modally before the main UI opens."""
+    import tkinter as tk
+    from interfaces.desktop.first_launch_wizard import FirstLaunchWizard
+
+    root = tk.Tk()
+    root.withdraw()  # hide dummy root; wizard is a Toplevel
+
+    wizard_done = threading.Event()
+
+    def on_complete(collected: dict) -> None:
+        wizard_done.set()
+        root.quit()
+
+    def on_cancel() -> None:
+        logger.info("[Main] First-launch wizard cancelled — launching with current settings.")
+        wizard_done.set()
+        root.quit()
+
+    FirstLaunchWizard(root, on_complete=on_complete, on_cancel=on_cancel)
+    root.mainloop()
+    try:
+        root.destroy()
+    except Exception:
+        pass
+
+
 def main() -> None:
     cfg = KernelConfig()
 
@@ -820,6 +881,8 @@ def main() -> None:
     parser.add_argument("--service", action="store_true", help="Start headless service mode with heartbeat/logging for watchdog/systemd")
     parser.add_argument("--doctor", action="store_true", help="Run startup diagnostics and dependency checks")
     parser.add_argument("--init-portable", nargs="?", const=".", help="Create portable data folders and .env in this project or target folder")
+    parser.add_argument("--init-watchdog", action="store_true", help="Register JAV watchdog Windows Startup shortcut (auto-restart on crash)")
+    parser.add_argument("--remove-watchdog", action="store_true", help="Remove JAV watchdog Windows Startup shortcut")
     parser.add_argument("--host", default=cfg.web_host, help="Web UI host")
     parser.add_argument("--port", type=int, default=cfg.web_port, help="Web UI port")
     args = parser.parse_args()
@@ -836,6 +899,12 @@ def main() -> None:
         print(f"Workspace: {root / 'data' / 'workspace'}")
         print(".env uses relative paths so a portable drive can change drive letter/mount point.")
         return
+
+    if args.init_watchdog:
+        sys.exit(_init_watchdog())
+
+    if args.remove_watchdog:
+        sys.exit(_remove_watchdog())
 
     if args.doctor:
         from scripts.doctor import main as doctor_main
@@ -874,6 +943,10 @@ def main() -> None:
         kernel = build_kernel(cfg)
         asyncio.run(run_with_voice(kernel))
     elif args.desktop:
+        if _is_first_launch(cfg):
+            _run_first_launch_wizard(cfg)
+            # Re-construct cfg so wizard's .env changes take effect
+            cfg = KernelConfig()
         from interfaces.desktop.desktop_app import run_desktop_app
         run_desktop_app(cfg)
     elif args.chat:

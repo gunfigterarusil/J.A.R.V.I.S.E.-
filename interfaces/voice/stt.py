@@ -125,3 +125,63 @@ class FasterWhisperSTT:
         if audio is None:
             return ""
         return self.transcribe_audio(audio)
+
+    def listen_with_vad(
+        self,
+        max_silence_ms: int = 700,
+        min_speech_ms: int = 150,
+        max_duration_s: float = 30.0,
+        stop_event=None,
+    ) -> str:
+        """Stream mic; stop when speech ends. Returns empty string on silence/stop."""
+        import queue as _q
+        import numpy as np  # type: ignore
+        import sounddevice as sd  # type: ignore
+
+        chunk_ms = 30
+        chunk_frames = int(self.sample_rate * chunk_ms / 1000)
+        max_silence_chunks = max(1, int(max_silence_ms / chunk_ms))
+        min_speech_chunks = max(1, int(min_speech_ms / chunk_ms))
+        max_total = int(max_duration_s * 1000 / chunk_ms)
+
+        buf: _q.Queue = _q.Queue()
+
+        def _cb(indata, frames, t, status):  # type: ignore[misc]
+            buf.put(indata.copy())
+
+        chunks: list = []
+        speech_count = 0
+        silence_count = 0
+        in_speech = False
+
+        with sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=chunk_frames,
+            callback=_cb,
+        ):
+            while len(chunks) < max_total:
+                if stop_event is not None and stop_event.is_set():
+                    return ""
+                try:
+                    chunk = buf.get(timeout=0.1)
+                except _q.Empty:
+                    continue
+                rms = float(np.sqrt(np.mean(np.square(chunk)))) if chunk.size else 0.0
+                is_speech = rms > self.energy_threshold
+                if is_speech:
+                    in_speech = True
+                    silence_count = 0
+                    speech_count += 1
+                    chunks.append(chunk)
+                elif in_speech:
+                    silence_count += 1
+                    chunks.append(chunk)
+                    if silence_count >= max_silence_chunks:
+                        break
+
+        if speech_count < min_speech_chunks:
+            return ""
+        audio = np.concatenate(chunks).reshape(-1)
+        return self.transcribe_audio(audio)

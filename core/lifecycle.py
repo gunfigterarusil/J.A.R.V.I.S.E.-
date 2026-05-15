@@ -35,6 +35,27 @@ class LifecycleManager:
             count = kernel.module_manager.load_all(paths)
             logger.info(f"[Lifecycle] Auto-loaded {count} module(s) from tier paths")
 
+            if kernel.module_manager.degraded_mode():
+                failed = kernel.module_manager.get_failed_modules()
+                logger.warning(
+                    f"[Lifecycle] {len(failed)} module(s) failed to load — running in degraded mode"
+                )
+                from core.event_bus import CognitiveEvent, Priority
+                kernel.event_bus.emit(
+                    CognitiveEvent(
+                        type="kernel_degraded",
+                        source_module="lifecycle",
+                        data={
+                            "failed_modules": failed,
+                            "message": (
+                                f"{len(failed)} module(s) failed to load. "
+                                "Some features may be unavailable."
+                            ),
+                        },
+                    ),
+                    Priority.COGNITIVE,
+                )
+
     async def async_startup(self, kernel: "Kernel") -> None:
         """Async portion — called after asyncio loop is running."""
         # Start the scheduler inside the running loop

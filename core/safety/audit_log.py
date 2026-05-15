@@ -26,6 +26,8 @@ class AuditEntry:
     risk_score: float
     rule_violated: Optional[str]
     confirm_required: bool
+    rule_type: str = "technical"   # "technical" | "ethical"
+    friendly_reason: str = ""      # human-readable reason shown in UI
 
 
 class AuditLog:

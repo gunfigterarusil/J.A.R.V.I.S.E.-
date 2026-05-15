@@ -31,10 +31,28 @@ from interfaces.desktop.notifier import DesktopNotifier
 from interfaces.desktop.tray import AssistantTray
 
 
+# Modern assistant-shell palette.  Still pure Tkinter/ttk, but the UI now behaves
+# like a product dashboard instead of a technical debug window.
+UI = {
+    "bg": "#0b1020",
+    "panel": "#111827",
+    "panel_2": "#172033",
+    "input": "#070b14",
+    "border": "#263247",
+    "text": "#f8fafc",
+    "muted": "#94a3b8",
+    "blue": "#38bdf8",
+    "green": "#34d399",
+    "orange": "#f59e0b",
+    "red": "#fb7185",
+    "purple": "#a78bfa",
+}
+
+
 class ScrollableFrame(ttk.Frame):
     def __init__(self, master, *args, **kwargs):
         super().__init__(master, *args, **kwargs)
-        self.canvas = tk.Canvas(self, highlightthickness=0, bg="#0d1117")
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=UI["bg"])
         self.scroll = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.body = ttk.Frame(self.canvas)
         self.window_id = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
@@ -54,8 +72,14 @@ class InfoCard(ttk.Frame):
         self.title.pack(anchor="w")
         self.value.pack(anchor="w", pady=(2, 0))
         self.subtitle.pack(anchor="w", pady=(2, 0))
+        self._last_value: str = value
+        self._last_subtitle: str = subtitle
 
     def set(self, value: str, subtitle: str = "") -> None:
+        if value == self._last_value and subtitle == self._last_subtitle:
+            return
+        self._last_value = value
+        self._last_subtitle = subtitle
         self.value.configure(text=value)
         self.subtitle.configure(text=subtitle)
 
@@ -70,6 +94,10 @@ class DesktopApp:
         self.voice_process: Optional[subprocess.Popen] = None
         self._last_event_by_type: Dict[str, dict] = {}
         self._last_notification: Dict[str, float] = {}
+        self._cached_model_status: Optional[dict] = None
+        self._model_status_ts: float = 0.0
+        self._model_status_refreshing: bool = False
+        self._task_event_count: int = 0
         self.notifier = DesktopNotifier(enabled=os.environ.get("DESKTOP_NOTIFICATIONS_ENABLED", "true").lower() == "true")
         self.tray: Optional[AssistantTray] = None
         self.kernel: Optional[Kernel] = None
@@ -86,9 +114,9 @@ class DesktopApp:
                 "or use: python main.py --chat / --web / --service."
             ) from exc
 
-        self.root.title("JAV — Assistant Shell")
+        self.root.title("JAV — Personal AI Assistant")
         self.root.geometry(os.environ.get("DESKTOP_WINDOW_GEOMETRY", "1320x820"))
-        self.root.minsize(980, 660)
+        self.root.minsize(1080, 680)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
         # Build the window first, then boot the cognitive kernel in a background thread.
@@ -139,6 +167,7 @@ class DesktopApp:
         self.kernel_ready = True
         self.status_label.configure(text="running")
         self._append("system", "JAV Assistant Shell V15.2 started. Use natural language, voice process, command palette, or Settings Center.")
+        self.root.after(1000, self._refresh_model_status_bg)
 
     def _ensure_ready(self) -> bool:
         if self.kernel_ready and self.kernel is not None and self.api is not None:
@@ -150,25 +179,37 @@ class DesktopApp:
     # UI build
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        self.root.configure(bg="#0d1117")
+        self.root.configure(bg=UI["bg"])
         style = ttk.Style(self.root)
         try:
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure("TFrame", background="#0d1117")
-        style.configure("Card.TFrame", background="#161b22", relief="flat")
-        style.configure("TLabel", background="#0d1117", foreground="#e6edf3")
-        style.configure("Card.TLabel", background="#161b22", foreground="#e6edf3")
-        style.configure("Muted.Card.TLabel", background="#161b22", foreground="#8b949e")
-        style.configure("Muted.TLabel", background="#0d1117", foreground="#8b949e")
-        style.configure("TButton", padding=(8, 5))
-        style.configure("Accent.TButton", padding=(10, 6))
-        style.configure("Danger.TButton", padding=(8, 5))
-        style.configure("TNotebook", background="#0d1117", borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(12, 6))
 
-        outer = ttk.Frame(self.root, padding=10)
+        style.configure("TFrame", background=UI["bg"])
+        style.configure("Card.TFrame", background=UI["panel"], relief="flat")
+        style.configure("SoftCard.TFrame", background=UI["panel_2"], relief="flat")
+        style.configure("TLabel", background=UI["bg"], foreground=UI["text"])
+        style.configure("Card.TLabel", background=UI["panel"], foreground=UI["text"])
+        style.configure("SoftCard.TLabel", background=UI["panel_2"], foreground=UI["text"])
+        style.configure("Muted.Card.TLabel", background=UI["panel"], foreground=UI["muted"])
+        style.configure("Muted.SoftCard.TLabel", background=UI["panel_2"], foreground=UI["muted"])
+        style.configure("Muted.TLabel", background=UI["bg"], foreground=UI["muted"])
+        style.configure("TButton", padding=(10, 7), background=UI["panel_2"], foreground=UI["text"])
+        style.map("TButton", background=[("active", UI["border"]), ("pressed", UI["border"])])
+        style.configure("Accent.TButton", padding=(12, 8), background=UI["blue"], foreground="#020617")
+        style.map("Accent.TButton", background=[("active", "#7dd3fc"), ("pressed", "#0ea5e9")])
+        style.configure("Danger.TButton", padding=(10, 7), background=UI["red"], foreground="#020617")
+        style.configure("TNotebook", background=UI["bg"], borderwidth=0, tabmargins=(0, 4, 0, 0))
+        style.configure("TNotebook.Tab", padding=(14, 8), background=UI["panel"], foreground=UI["muted"])
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", UI["panel_2"]), ("active", UI["border"])],
+            foreground=[("selected", UI["text"]), ("active", UI["text"])],
+        )
+        style.configure("Horizontal.TProgressbar", background=UI["blue"], troughcolor=UI["panel"], borderwidth=0)
+
+        outer = ttk.Frame(self.root, padding=14)
         outer.pack(fill=tk.BOTH, expand=True)
 
         self._build_header(outer)
@@ -185,18 +226,26 @@ class DesktopApp:
         self._build_right_tabs(right)
 
     def _build_header(self, parent: ttk.Frame) -> None:
-        header = ttk.Frame(parent)
+        header = ttk.Frame(parent, style="SoftCard.TFrame", padding=(14, 12))
         header.pack(fill=tk.X)
-        title_box = ttk.Frame(header)
+        title_box = ttk.Frame(header, style="SoftCard.TFrame")
         title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(title_box, text="JAV Assistant Shell", font=("Segoe UI", 18, "bold")).pack(anchor="w")
-        ttk.Label(title_box, text="Jarvis-like local AI core — voice, memory, tasks, GUI actions, monitor", style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(title_box, text="JAV", style="SoftCard.TLabel", font=("Segoe UI", 24, "bold")).pack(anchor="w")
+        ttk.Label(
+            title_box,
+            text="Personal Jarvis-like assistant — voice • memory • vision • actions • monitor",
+            style="Muted.SoftCard.TLabel",
+            font=("Segoe UI", 10),
+        ).pack(anchor="w")
 
-        self.status_label = ttk.Label(header, text="starting...", style="Muted.TLabel")
-        self.status_label.pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(header, text="Settings", command=self.open_settings).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(header, text="Voice", command=self.toggle_voice_process).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(header, text="Notify", command=lambda: self._notify("JAV", "Assistant Shell notifications are working.")).pack(side=tk.RIGHT, padx=(8, 0))
+        actions = ttk.Frame(header, style="SoftCard.TFrame")
+        actions.pack(side=tk.RIGHT)
+        self.status_label = ttk.Label(actions, text="starting…", style="Muted.SoftCard.TLabel")
+        self.status_label.grid(row=0, column=0, columnspan=4, sticky="e", pady=(0, 6))
+        ttk.Button(actions, text="⚙ Settings", command=self.open_settings).grid(row=1, column=0, padx=3)
+        ttk.Button(actions, text="🧠 Models", command=self._open_model_wizard).grid(row=1, column=1, padx=3)
+        ttk.Button(actions, text="🎙 Voice", command=self.toggle_voice_process).grid(row=1, column=2, padx=3)
+        ttk.Button(actions, text="🔔 Test", command=lambda: self._notify("JAV", "Assistant Shell notifications are working.")).grid(row=1, column=3, padx=3)
 
     def _build_status_cards(self, parent: ttk.Frame) -> None:
         grid = ttk.Frame(parent)
@@ -221,23 +270,30 @@ class DesktopApp:
         chat_card.pack(fill=tk.BOTH, expand=True)
         row = ttk.Frame(chat_card, style="Card.TFrame")
         row.pack(fill=tk.X)
-        ttk.Label(row, text="Conversation", style="Card.TLabel", font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT)
+        ttk.Label(row, text="Conversation", style="Card.TLabel", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
+        ttk.Label(row, text="natural language commands work here", style="Muted.Card.TLabel").pack(side=tk.LEFT, padx=(10, 0))
         ttk.Button(row, text="Clear", command=self._clear_chat).pack(side=tk.RIGHT)
 
         self.chat = scrolledtext.ScrolledText(
-            chat_card, wrap=tk.WORD, state=tk.DISABLED, bg="#010409", fg="#e6edf3",
-            insertbackground="#e6edf3", relief=tk.FLAT, font=("Consolas", 11), padx=12, pady=12,
+            chat_card, wrap=tk.WORD, state=tk.DISABLED, bg=UI["input"], fg=UI["text"],
+            insertbackground=UI["text"], relief=tk.FLAT, font=("Segoe UI", 10), padx=14, pady=14,
         )
+        self.chat.tag_configure("user", foreground=UI["blue"], font=("Segoe UI", 10, "bold"))
+        self.chat.tag_configure("assistant", foreground=UI["green"], font=("Segoe UI", 10, "bold"))
+        self.chat.tag_configure("system", foreground=UI["orange"], font=("Segoe UI", 10, "bold"))
+        self.chat.tag_configure("event", foreground=UI["purple"], font=("Segoe UI", 10, "bold"))
+        self.chat.tag_configure("body", foreground=UI["text"], font=("Segoe UI", 10))
         self.chat.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
 
-        input_frame = ttk.Frame(parent)
+        input_frame = ttk.Frame(parent, style="SoftCard.TFrame", padding=(8, 8))
         input_frame.pack(fill=tk.X, pady=(8, 0))
         self.input_var = tk.StringVar()
         self.input_entry = ttk.Entry(input_frame, textvariable=self.input_var, font=("Segoe UI", 11))
         self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.input_entry.bind("<Return>", lambda _e: self.send_message())
         ttk.Button(input_frame, text="Send", style="Accent.TButton", command=self.send_message).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(input_frame, text="Ask screen", command=lambda: self._send_text("проаналізуй екран і скажи що робити")).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(input_frame, text="Screen", command=lambda: self._send_text("проаналізуй екран і скажи що робити")).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(input_frame, text="Task", command=lambda: self._prefill("розберися з цією задачею: ")).pack(side=tk.RIGHT, padx=(8, 0))
 
     def _build_right_tabs(self, parent: ttk.Frame) -> None:
         tabs = ttk.Notebook(parent)
@@ -250,10 +306,13 @@ class DesktopApp:
         memory = ScrollableFrame(tabs)
         models = ScrollableFrame(tabs)
         events = ttk.Frame(tabs, padding=8)
+        doctor = ttk.Frame(tabs, padding=8)
+        logs = ttk.Frame(tabs, padding=8)
 
         for frame, label in [
-            (dashboard, "Dashboard"), (commands, "Commands"), (tasks, "Tasks"),
-            (approvals, "Approvals"), (memory, "Memory/Skills"), (models, "Models"), (events, "Events"),
+            (dashboard, "🏠 Home"), (commands, "⌘ Commands"), (tasks, "✅ Tasks"),
+            (approvals, "🛡 Approvals"), (memory, "🧠 Memory"), (models, "⚙ Models"),
+            (events, "📡 Events"), (doctor, "🩺 Doctor"), (logs, "📜 Logs"),
         ]:
             tabs.add(frame, text=label)
 
@@ -264,30 +323,54 @@ class DesktopApp:
         self._build_memory_tab(memory)
         self._build_models_tab(models)
         self._build_events_tab(events)
+        self._build_doctor_tab(doctor)
+        self._build_logs_tab(logs)
 
     def _button(self, parent, text: str, command) -> None:
+        ttk.Button(parent.body if isinstance(parent, ScrollableFrame) else parent, text=text, command=command).pack(fill=tk.X, pady=4, padx=4)
+
+    def _chip(self, parent, text: str, command) -> None:
         ttk.Button(parent.body if isinstance(parent, ScrollableFrame) else parent, text=text, command=command).pack(fill=tk.X, pady=3, padx=4)
+
+    def _section(self, parent, title: str, subtitle: str = "") -> ttk.Frame:
+        body = parent.body if isinstance(parent, ScrollableFrame) else parent
+        box = ttk.Frame(body, style="Card.TFrame", padding=10)
+        box.pack(fill=tk.X, pady=(0, 10), padx=2)
+        ttk.Label(box, text=title, style="Card.TLabel", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        if subtitle:
+            ttk.Label(box, text=subtitle, style="Muted.Card.TLabel", wraplength=360).pack(anchor="w", pady=(2, 8))
+        return box
 
     def _label(self, parent, text: str, bold: bool = False) -> None:
         ttk.Label(parent.body if isinstance(parent, ScrollableFrame) else parent, text=text, font=("Segoe UI", 11, "bold") if bold else ("Segoe UI", 10)).pack(anchor="w", pady=(8 if bold else 2, 4), padx=4)
 
     def _build_dashboard_tab(self, tab: ScrollableFrame) -> None:
-        self._label(tab, "Quick actions", True)
+        top = self._section(tab, "Start here", "Ask naturally, or use the safest one-click actions below.")
         for text, cmd in [
-            ("System status", self.system_status), ("Diagnose system", self.system_diagnose),
-            ("Model status", self.model_status), ("Memory status", self.memory_status),
-            ("Runtime status", self.runtime_status), ("Proactive status", self.proactive_status),
-            ("Daily summary", self.daily_summary), ("Sleep / consolidate", self.sleep_cycle),
-            ("Understand GUI", self.understand_gui), ("Action status", self.action_status),
+            ("🩺 Diagnose system", self.system_diagnose),
+            ("🧠 Check models", self.model_status),
+            ("💾 Memory status", self.memory_status),
+            ("👁 Understand screen", self.understand_gui),
+            ("✅ Continue task", self.task_step),
         ]:
-            self._button(tab, text, cmd)
-        self._label(tab, "Voice process", True)
-        self.voice_status_label = ttk.Label(tab.body, text="Voice: stopped", style="Muted.TLabel")
-        self.voice_status_label.pack(anchor="w", padx=4, pady=(0, 4))
-        self._button(tab, "Start / stop voice mode", self.toggle_voice_process)
-        self._label(tab, "Safety", True)
-        for lvl, text in [(1, "L1 read-only"), (4, "L4 file-write"), (5, "L5 shell")]:
-            self._button(tab, text, lambda l=lvl: self.set_safety(l))
+            ttk.Button(top, text=text, command=cmd, style="Accent.TButton" if "Diagnose" in text else "TButton").pack(fill=tk.X, pady=3)
+
+        voice = self._section(tab, "Voice companion", "Start the separate voice loop when microphone/STT/TTS are configured.")
+        self.voice_status_label = ttk.Label(voice, text="Voice: stopped", style="Muted.Card.TLabel")
+        self.voice_status_label.pack(anchor="w", pady=(0, 6))
+        ttk.Button(voice, text="🎙 Start / stop voice mode", command=self.toggle_voice_process).pack(fill=tk.X)
+
+        safety = self._section(tab, "Safety level", "Use the lowest level that can complete the task.")
+        for lvl, text in [(1, "L1 Read-only"), (4, "L4 File write in workspace"), (5, "L5 Allowlisted shell")]:
+            ttk.Button(safety, text=text, command=lambda l=lvl: self.set_safety(l)).pack(fill=tk.X, pady=3)
+
+        monitor = self._section(tab, "Companion status", "System monitor, runtime, proactive assistant and daily summary.")
+        for text, cmd in [
+            ("🖥 System status", self.system_status), ("🧬 Runtime status", self.runtime_status),
+            ("🔔 Proactive status", self.proactive_status), ("📅 Daily summary", self.daily_summary),
+            ("🌙 Sleep / consolidate memory", self.sleep_cycle), ("🛠 Action status", self.action_status),
+        ]:
+            ttk.Button(monitor, text=text, command=cmd).pack(fill=tk.X, pady=3)
 
     def _build_commands_tab(self, tab: ScrollableFrame) -> None:
         self._label(tab, "Command palette", True)
@@ -313,19 +396,19 @@ class DesktopApp:
         ]:
             self._button(tab, text, cmd)
         self._label(tab, "Active task feed", True)
-        self.task_feed = tk.Listbox(tab.body, height=12, bg="#010409", fg="#c9d1d9", relief=tk.FLAT)
+        self.task_feed = tk.Listbox(tab.body, height=12, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
         self.task_feed.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
     def _build_approvals_tab(self, tab: ttk.Frame) -> None:
         ttk.Label(tab, text="Pending approvals", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.approval_list = tk.Listbox(tab, height=12, bg="#010409", fg="#c9d1d9", relief=tk.FLAT)
+        self.approval_list = tk.Listbox(tab, height=12, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
         self.approval_list.pack(fill=tk.BOTH, expand=True, pady=(6, 6))
         row = ttk.Frame(tab)
         row.pack(fill=tk.X)
         ttk.Button(row, text="Approve selected", command=self.approve_selected).pack(side=tk.LEFT)
         ttk.Button(row, text="Deny selected", command=self.deny_selected).pack(side=tk.LEFT, padx=(6, 0))
         ttk.Button(row, text="Refresh action status", command=self.action_status).pack(side=tk.RIGHT)
-        self.approval_detail = scrolledtext.ScrolledText(tab, height=8, wrap=tk.WORD, bg="#010409", fg="#c9d1d9", relief=tk.FLAT)
+        self.approval_detail = scrolledtext.ScrolledText(tab, height=8, wrap=tk.WORD, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
         self.approval_detail.pack(fill=tk.BOTH, expand=False, pady=(8, 0))
         self.approval_list.bind("<<ListboxSelect>>", lambda _e: self._show_selected_approval())
 
@@ -343,20 +426,103 @@ class DesktopApp:
         ttk.Label(tab.body, text="V15 keeps this panel ready for a future searchable memory table. Use /recall now.", style="Muted.TLabel", wraplength=360).pack(anchor="w", padx=4, pady=4)
 
     def _build_models_tab(self, tab: ScrollableFrame) -> None:
-        self._label(tab, "Model router", True)
-        self._button(tab, "Refresh model status", self.model_status)
-        self._button(tab, "Open Settings / Model Profiles", self.open_settings)
-        self.model_text = scrolledtext.ScrolledText(tab.body, height=18, wrap=tk.WORD, bg="#010409", fg="#c9d1d9", relief=tk.FLAT)
-        self.model_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        from interfaces.desktop.model_status_panel import ModelStatusPanel
+        self._model_panel = ModelStatusPanel(tab.body, kernel=None, padding=4)
+        self._model_panel.pack(fill=tk.BOTH, expand=True)
+
+    def _open_model_wizard(self) -> None:
+        from interfaces.desktop.model_setup_wizard import ModelSetupWizard
+
+        def on_complete(cfg: dict) -> None:
+            if hasattr(self, "_model_panel"):
+                self._model_panel.refresh(kernel=getattr(self, "kernel", None))
+
+        ModelSetupWizard(self.root, on_complete=on_complete, on_cancel=lambda: None)
 
     def _build_events_tab(self, tab: ttk.Frame) -> None:
         ttk.Label(tab, text="Recent events", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 6))
-        self.event_list = tk.Listbox(tab, height=20, bg="#010409", fg="#8b949e", relief=tk.FLAT)
+        self.event_list = tk.Listbox(tab, height=20, bg=UI["input"], fg=UI["muted"], relief=tk.FLAT)
         self.event_list.pack(fill=tk.BOTH, expand=True)
         row = ttk.Frame(tab)
         row.pack(fill=tk.X, pady=(8, 0))
         ttk.Button(row, text="Clear events", command=lambda: self.event_list.delete(0, tk.END)).pack(side=tk.LEFT)
         ttk.Button(row, text="Runtime status", command=self.runtime_status).pack(side=tk.RIGHT)
+
+    def _build_doctor_tab(self, tab: ttk.Frame) -> None:
+        from interfaces.desktop.doctor_panel import DoctorPanel
+        panel = DoctorPanel(tab)
+        panel.pack(fill=tk.BOTH, expand=True)
+
+    def _build_logs_tab(self, tab: ttk.Frame) -> None:
+        header = ttk.Frame(tab)
+        header.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(header, text="Recent logs",
+                  font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
+
+        self._log_filter_var = tk.StringVar(value="ERROR")
+        ttk.Combobox(header, textvariable=self._log_filter_var,
+                     values=["ALL", "WARNING", "ERROR", "CRITICAL"],
+                     width=10, state="readonly").pack(side=tk.LEFT, padx=(8, 0))
+
+        ttk.Button(header, text="Refresh",
+                   command=self._refresh_logs).pack(side=tk.RIGHT)
+        ttk.Button(header, text="Copy",
+                   command=self._copy_logs).pack(side=tk.RIGHT, padx=(0, 6))
+
+        self._log_text = scrolledtext.ScrolledText(
+            tab, wrap=tk.WORD, state=tk.DISABLED,
+            bg=UI["input"], fg=UI["text"], font=("Consolas", 9),
+        )
+        self._log_text.pack(fill=tk.BOTH, expand=True)
+
+    def _refresh_logs(self) -> None:
+        level_filter = getattr(self, "_log_filter_var", None)
+        filter_val = level_filter.get() if level_filter else "ALL"
+        log_file = self._resolve_log_file()
+        if not log_file or not log_file.exists():
+            self._set_log_text("Log file not found yet. Run JAV for a moment to generate logs.")
+            return
+        try:
+            lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            if filter_val != "ALL":
+                lines = [l for l in lines if f"[{filter_val}]" in l or f" {filter_val} " in l]
+            self._set_log_text("\n".join(lines[-500:]))
+        except Exception as exc:
+            self._set_log_text(f"Could not read log: {exc}")
+
+    def _set_log_text(self, text: str) -> None:
+        widget = getattr(self, "_log_text", None)
+        if widget is None:
+            return
+        widget.configure(state=tk.NORMAL)
+        widget.delete("1.0", tk.END)
+        widget.insert(tk.END, text)
+        widget.configure(state=tk.DISABLED)
+        widget.see(tk.END)
+
+    def _copy_logs(self) -> None:
+        widget = getattr(self, "_log_text", None)
+        if widget is None:
+            return
+        text = widget.get("1.0", tk.END)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
+    def _resolve_log_file(self):
+        from pathlib import Path
+        try:
+            cfg = getattr(self, "cfg", None)
+            if cfg is None:
+                return None
+            data_dir = Path(cfg.persistence_dir).expanduser()
+            runtime = getattr(cfg, "runtime", None)
+            if runtime and hasattr(runtime, "resolve_log_dir"):
+                log_dir = Path(runtime.resolve_log_dir(str(data_dir))).expanduser()
+            else:
+                log_dir = data_dir / "logs"
+            return log_dir / "jav.log"
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     # UI helpers
@@ -378,8 +544,9 @@ class DesktopApp:
     def _append(self, role: str, text: str) -> None:
         self.chat.configure(state=tk.NORMAL)
         prefix = {"user": "You", "assistant": "Jarvis", "system": "System", "event": "Event"}.get(role, role)
-        tag = prefix
-        self.chat.insert(tk.END, f"{prefix}: {text}\n\n")
+        tag = role if role in {"user", "assistant", "system", "event"} else "body"
+        self.chat.insert(tk.END, f"{prefix}: ", tag)
+        self.chat.insert(tk.END, f"{text}\n\n", "body")
         self.chat.see(tk.END)
         self.chat.configure(state=tk.DISABLED)
 
@@ -420,16 +587,25 @@ class DesktopApp:
         except queue.Empty:
             pass
 
+        processed = 0
         try:
-            while True:
+            while processed < 25:
                 event = self.events.get_nowait()
                 self._consume_event_for_ui(event)
+                processed += 1
         except queue.Empty:
             pass
 
+        if self.events.qsize() > 200:
+            while self.events.qsize() > 100:
+                try:
+                    self.events.get_nowait()
+                except queue.Empty:
+                    break
+
         self._update_cards()
         self._update_voice_status()
-        self.root.after(300, self._tick_ui)
+        self.root.after(500, self._tick_ui)
 
     def _consume_event_for_ui(self, event: dict) -> None:
         self.recent_events.insert(0, event)
@@ -447,6 +623,7 @@ class DesktopApp:
             self.task_feed.insert(0, task_label)
             if self.task_feed.size() > 80:
                 self.task_feed.delete(80, tk.END)
+            self._task_event_count += 1
         if etype in {"action_pending_confirmation", "action_confirmation_required"}:
             pending_id = str(data.get("pending_id") or data.get("id") or data.get("request_id") or "").strip()
             if pending_id:
@@ -457,6 +634,21 @@ class DesktopApp:
             text = str(data.get("text") or data.get("message") or data.get("summary") or "").strip()
             if text:
                 self._notify("JAV noticed something", text)
+        if etype in {"kernel_started", "model_status_updated"}:
+            if hasattr(self, "_model_panel"):
+                self._model_panel.refresh(kernel=getattr(self, "kernel", None))
+        if etype == "kernel_degraded":
+            msg = str(data.get("message") or "One or more modules failed to load.")
+            failed = data.get("failed_modules", [])
+            names = ", ".join(str(m.get("path", "?")).split("\\")[-1].split("/")[-1]
+                              for m in failed[:5])
+            detail = f" ({names})" if names else ""
+            self._append("system", f"⚠ Degraded mode: {msg}{detail}")
+            self._notify("JAV degraded mode", msg)
+            try:
+                self.status_label.configure(text="degraded mode", foreground="#f0883e")
+            except Exception:
+                pass
 
     def _patch_event_tap(self) -> None:
         if self.kernel is None:
@@ -494,6 +686,30 @@ class DesktopApp:
 
         self.kernel.event_bus.emit = tapped_emit  # type: ignore[union-attr, method-assign]
 
+    def _refresh_model_status_bg(self) -> None:
+        """Fetch router.status() in a daemon thread; cache result for _update_cards()."""
+        if self._model_status_refreshing or not self.kernel_ready or self.kernel is None:
+            self.root.after(5000, self._refresh_model_status_bg)
+            return
+        self._model_status_refreshing = True
+
+        def _worker() -> None:
+            try:
+                router = getattr(self.kernel, "llm_router", None)
+                if router is not None and hasattr(router, "status"):
+                    status = router.status(refresh=True)
+                    self._cached_model_status = status
+                    self._model_status_ts = time.time()
+                    if hasattr(self, "_model_panel"):
+                        self.root.after(0, self._model_panel._update_from_status, status)
+            except Exception:
+                pass
+            finally:
+                self._model_status_refreshing = False
+            self.root.after(5000, self._refresh_model_status_bg)
+
+        threading.Thread(target=_worker, daemon=True, name="model-status-bg").start()
+
     def _update_cards(self) -> None:
         if not self.kernel_ready or self.kernel is None or self.api is None:
             self.status_label.configure(text="booting kernel…")
@@ -507,18 +723,16 @@ class DesktopApp:
         self.status_label.configure(text=f"running={running} | modules={mods} | safety=L{safety}")
         self.cards["kernel"].set(f"{'ON' if running else 'OFF'} / {mods} mods", f"Safety L{safety}")
 
-        if self.kernel is None:
-            self._append("system", "Kernel is not ready yet.")
-            return
-        router = getattr(self.kernel, "llm_router", None)
-        if router is not None and hasattr(router, "status"):
-            try:
-                status = router.status(refresh=False)
-                roles = status.get("roles") or {}
-                available = sum(1 for r in roles.values() if r.get("available"))
-                self.cards["models"].set(f"{available}/{len(roles)} roles", str(status.get("profile") or "profile"))
-            except Exception:
-                self.cards["models"].set("unknown", "router error")
+        status = self._cached_model_status
+        if status is None:
+            self.cards["models"].set("checking…", "loading")
+        else:
+            roles = status.get("roles") or {}
+            available = sum(1 for r in roles.values() if r.get("available"))
+            self.cards["models"].set(
+                f"{available}/{len(roles)} roles",
+                str(status.get("profile") or "profile"),
+            )
 
         self.cards["approvals"].set(str(len(self.pending_approvals)), "pending confirmations")
         mem_dir = getattr(self.cfg.memory, "data_dir", "")
@@ -529,8 +743,7 @@ class DesktopApp:
             self.cards["system"].set(str(data.get("status") or data.get("summary") or "OK")[:24], str(data.get("text") or "")[:42])
         else:
             self.cards["system"].set("monitoring", "use Diagnose system")
-        task_events = [e for e in self.recent_events[:60] if str(e.get("type", "")).startswith("task_chain")]
-        self.cards["tasks"].set(str(len(task_events)), "recent task events")
+        self.cards["tasks"].set(str(self._task_event_count), "task chain events")
 
     def _update_voice_status(self) -> None:
         if self.voice_process and self.voice_process.poll() is None:

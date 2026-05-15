@@ -82,7 +82,8 @@ class Kernel:
                 getattr(getattr(config, "actions", None), "workspace_path", "~/jarvis_workspace"),
             ])
         self.sandbox = Sandbox(extra_allowed=sandbox_allowed)
-        self.constitution = SafetyConstitution()
+        safety_const_cfg = getattr(config, "safety_constitution", None)
+        self.constitution = SafetyConstitution(config=safety_const_cfg)
         self.risk_engine = RiskEngine()
         self.permission_manager = PermissionManager(
             default_level=PermissionLevel(
