@@ -26,6 +26,17 @@ class SettingSpec:
 
 
 SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
+
+    "Desktop Shell": [
+        SettingSpec("DESKTOP_WINDOW_GEOMETRY", "Default desktop window geometry", "1320x820", "Example: 1320x820 or 1400x900"),
+        SettingSpec("DESKTOP_TRAY_ENABLED", "Enable system tray icon", "true", "Requires optional pystray + Pillow", kind="bool"),
+        SettingSpec("DESKTOP_NOTIFICATIONS_ENABLED", "Enable desktop notifications", "true", "Uses plyer/notify-send when available", kind="bool"),
+        SettingSpec("DESKTOP_NOTIFICATION_COOLDOWN_SECONDS", "Notification cooldown seconds", "20"),
+        SettingSpec("DESKTOP_START_MINIMIZED", "Start minimized to tray", "false", kind="bool"),
+        SettingSpec("DESKTOP_ASSISTANT_SHELL_THEME", "Assistant shell theme", "dark", "Reserved for future themes: dark/light/custom"),
+        SettingSpec("DESKTOP_SHOW_EVENT_STREAM", "Show event stream", "true", kind="bool"),
+        SettingSpec("DESKTOP_SHOW_APPROVAL_PANEL", "Show approval panel", "true", kind="bool"),
+    ],
     "Portable / Paths": [
         SettingSpec("JAV_PORTABLE", "Portable mode", "false", "Store data beside the program when true", kind="bool"),
         SettingSpec("JARVIS_DATA_DIR", "Brain / memory data directory", "", "Example: E:/JAV/data/brain", kind="path"),

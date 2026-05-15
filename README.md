@@ -545,7 +545,10 @@ Everything is stored in `~/.jarvis_brain/`:
 | V10 | ✅ MVP Done | Modular role-based model/API router and profiles |
 | V11 | ✅ MVP Done | Proactive companion + system monitor |
 | V12 | ✅ MVP Done | Advanced Vision + GUI Automation 2.0: semantic targets, screenshot audit, verify-after-action loop |
-| V13 | Next | Advanced task orchestrator + rollback/retry/verifier |
+| V13 | ✅ MVP Done | Advanced task orchestrator + rollback/retry/verifier |
+| V14 | ✅ MVP Done | Skill learning + lightweight knowledge graph |
+| V15 | ✅ MVP Done | Better desktop app / assistant shell: dashboard, approvals, tray/notifications |
+| V16 | Next | Server / Android / Remote Client |
 
 
 ### V8 desktop + conversational action MVP details
@@ -1722,10 +1725,63 @@ Roadmap update:
 ```text
 V12 ✅ Advanced Vision + GUI Automation 2.0
 V13 ✅ Advanced Task Orchestrator MVP
-V14 ⏭ Skill Learning + Knowledge Graph
+V14 ✅ Skill Learning + Knowledge Graph MVP
+V15 ⏭ Better Desktop App / Assistant Shell
 ```
 
 
 ## V14 Skill Learning + Knowledge Graph MVP
 
 Added procedural skills, auto-learning from tasks/repair/web/action events, lightweight knowledge graph, `/skills`, `/skill`, `/learn-skill`, `/knowledge`, and Settings Center controls.
+
+## V15 Better Desktop App / Assistant Shell MVP
+
+V15 turns the native Tkinter desktop mode into a more usable daily assistant shell.
+
+Start it with:
+
+```bash
+python main.py --desktop
+```
+
+Main improvements:
+
+```text
+- dashboard status cards for kernel, models, system, tasks, approvals and memory
+- cleaner chat layout with command palette
+- dedicated tabs: Dashboard, Commands, Tasks, Approvals, Memory/Skills, Models, Events
+- approval panel for pending V7 safety confirmations
+- voice process launcher/stopper from the desktop app
+- optional tray icon through pystray + Pillow
+- optional desktop notifications through plyer or notify-send
+- model status panel and memory/skill quick actions
+- better task/GUI controls for V13/V12 workflows
+```
+
+Optional dependencies:
+
+```bash
+pip install pystray plyer pillow
+```
+
+New desktop settings:
+
+```env
+DESKTOP_WINDOW_GEOMETRY=1320x820
+DESKTOP_TRAY_ENABLED=true
+DESKTOP_NOTIFICATIONS_ENABLED=true
+DESKTOP_NOTIFICATION_COOLDOWN_SECONDS=20
+DESKTOP_START_MINIMIZED=false
+DESKTOP_ASSISTANT_SHELL_THEME=dark
+DESKTOP_SHOW_EVENT_STREAM=true
+DESKTOP_SHOW_APPROVAL_PANEL=true
+```
+
+Roadmap update:
+
+```text
+V13 ✅ Advanced Task Orchestrator MVP
+V14 ✅ Skill Learning + Knowledge Graph MVP
+V15 ✅ Better Desktop App / Assistant Shell MVP
+V16 ⏭ Server / Android / Remote Client
+```

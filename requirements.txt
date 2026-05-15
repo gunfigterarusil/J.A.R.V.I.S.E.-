@@ -26,3 +26,7 @@ pyinstaller
 # V9.7 Safe GUI Automation MVP
 pyautogui
 psutil
+
+# V15 optional desktop shell enhancements
+pystray
+plyer
