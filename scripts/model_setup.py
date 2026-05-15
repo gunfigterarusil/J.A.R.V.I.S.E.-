@@ -91,7 +91,7 @@ def read_env_file(path: Path | None = None) -> Dict[str, str]:
 def effective_env() -> Dict[str, str]:
     data = read_env_file()
     for k, v in os.environ.items():
-        if k.startswith("MODEL_") or k in {"OLLAMA_HOST", "OPENAI_API_KEY", "OPENAI_BASE_URL", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"}:
+        if k.startswith("MODEL_") or k in {"OLLAMA_HOST", "OPENAI_API_KEY", "OPENAI_BASE_URL", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_NIM_API_KEY", "NVIDIA_NIM_BASE_URL"}:
             data[k] = v
     return data
 
@@ -171,6 +171,9 @@ def diagnose_models() -> Dict[str, object]:
             else:
                 status = "missing_model"
                 detail = f"Run: ollama pull {model}"
+        elif provider in {"nvidia", "nvidia_nim", "nim"}:
+            status = "configured" if env.get("NVIDIA_NIM_API_KEY") else "missing_key"
+            detail = "NVIDIA_NIM_API_KEY present" if status == "configured" else "Set NVIDIA_NIM_API_KEY"
         elif provider == "gemini":
             status = "configured" if env.get("GEMINI_API_KEY") else "missing_key"
             detail = "GEMINI_API_KEY present" if status == "configured" else "Set GEMINI_API_KEY"

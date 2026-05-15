@@ -198,6 +198,11 @@ class LLMRouterConfig:
     openai_model: str = field(default_factory=lambda: os.environ.get("OPENAI_MODEL", "gpt-4o"))
     openai_base_url: str = field(default_factory=lambda: os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"))
 
+    # NVIDIA NIM preset — OpenAI-compatible hosted API
+    nvidia_nim_api_key: str = field(default_factory=lambda: os.environ.get("NVIDIA_NIM_API_KEY", ""))
+    nvidia_nim_base_url: str = field(default_factory=lambda: os.environ.get("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"))
+    nvidia_nim_model: str = field(default_factory=lambda: os.environ.get("NVIDIA_NIM_MODEL", ""))
+
     # Anthropic  →  ANTHROPIC_API_KEY, ANTHROPIC_MODEL
     anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     anthropic_model: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest"))

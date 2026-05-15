@@ -339,6 +339,28 @@ def main() -> int:
     except Exception as exc:
         ok_all &= check("model router diagnostics", False, repr(exc))
 
+
+    print("\nModel discovery:")
+    try:
+        from scripts.model_discovery import discover_models
+        discovered = discover_models(providers=["ollama", "nvidia", "openai", "anthropic", "gemini", "llamacpp"])
+        by_provider = {}
+        for m in discovered:
+            by_provider.setdefault(m.provider, []).append(m)
+        for provider in ["ollama", "nvidia", "openai", "anthropic", "gemini", "llamacpp"]:
+            items = by_provider.get(provider, [])
+            ready = [m for m in items if getattr(m, "available", False)]
+            catalog = [m for m in items if getattr(m, "source", "") == "catalog"]
+            errors = [m.error for m in items if getattr(m, "error", "") and not getattr(m, "available", False)]
+            if ready:
+                check(f"Discovery {provider}", True, f"{len(ready)} model(s) available", severity="info")
+            elif catalog:
+                check(f"Discovery {provider}", True, f"{len(catalog)} catalog suggestion(s); configure API/key to verify", severity="external")
+            else:
+                check(f"Discovery {provider}", False, (errors[0] if errors else "no models discovered"), severity="external")
+    except Exception as exc:
+        check("model discovery", False, repr(exc), severity="external")
+
     print("\nSmoke tests:")
     try:
         result = subprocess.run(

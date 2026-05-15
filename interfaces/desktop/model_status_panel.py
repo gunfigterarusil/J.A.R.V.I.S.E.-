@@ -74,6 +74,7 @@ class ModelStatusPanel(ttk.Frame):
 
         btn_box = ttk.Frame(header, style="TFrame")
         btn_box.pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(btn_box, text="Model Catalog", command=self._open_catalog).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btn_box, text="Setup Wizard", command=self._open_wizard,
                    style="Accent.TButton").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btn_box, text="Refresh", command=lambda: self.refresh()).pack(side=tk.LEFT)
@@ -253,3 +254,81 @@ class ModelStatusPanel(ttk.Frame):
             on_complete=on_complete,
             on_cancel=lambda: None,
         )
+
+    def _open_catalog(self) -> None:
+        """Open a simple model discovery/catalog window."""
+        import threading as _threading
+        from scripts.model_discovery import discover_models, format_catalog, assign_role
+
+        win = tk.Toplevel(self.winfo_toplevel())
+        win.title("JAV — Model Catalog / Discovery")
+        win.geometry("980x640")
+        win.minsize(780, 480)
+        win.configure(bg=_BG)
+
+        top = ttk.Frame(win, style="TFrame", padding=10)
+        top.pack(fill=tk.X)
+        ttk.Label(top, text="Model Catalog", style="Title.TLabel" if "Title.TLabel" else "TLabel").pack(side=tk.LEFT)
+        status = ttk.Label(top, text="Ready", style="Muted.TLabel")
+        status.pack(side=tk.RIGHT)
+
+        body = ttk.Frame(win, style="TFrame", padding=(10, 0, 10, 10))
+        body.pack(fill=tk.BOTH, expand=True)
+        cols = ("provider", "status", "type", "roles", "model")
+        tree = ttk.Treeview(body, columns=cols, show="headings", height=18)
+        widths = {"provider": 100, "status": 90, "type": 90, "roles": 200, "model": 420}
+        for c in cols:
+            tree.heading(c, text=c.title())
+            tree.column(c, width=widths[c], anchor="w")
+        yscroll = ttk.Scrollbar(body, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=yscroll.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        yscroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bottom = ttk.Frame(win, style="TFrame", padding=10)
+        bottom.pack(fill=tk.X)
+        role_var = tk.StringVar(value="fast")
+        ttk.Label(bottom, text="Assign selected to:", style="Muted.TLabel").pack(side=tk.LEFT)
+        ttk.Combobox(bottom, textvariable=role_var, values=_ROLES, width=12, state="readonly").pack(side=tk.LEFT, padx=(6, 8))
+
+        models_cache = []
+
+        def populate(models):
+            nonlocal models_cache
+            models_cache = models
+            tree.delete(*tree.get_children())
+            for idx, m in enumerate(models):
+                status_text = "ready" if m.available else ("catalog" if m.source == "catalog" else "warn")
+                tree.insert("", "end", iid=str(idx), values=(m.provider, status_text, m.model_type, ", ".join(m.suggested_roles), m.model_id or m.error))
+            status.configure(text=f"{len(models)} item(s)")
+
+        def refresh_catalog():
+            status.configure(text="Discovering…")
+            def worker():
+                try:
+                    models = discover_models()
+                    self.after(0, populate, models)
+                except Exception as exc:
+                    self.after(0, status.configure, {"text": f"Error: {exc}"})
+            _threading.Thread(target=worker, daemon=True).start()
+
+        def assign_selected():
+            sel = tree.selection()
+            if not sel:
+                status.configure(text="Select a model first")
+                return
+            m = models_cache[int(sel[0])]
+            if not m.model_id:
+                status.configure(text="Selected row has no model id")
+                return
+            try:
+                path = assign_role(role_var.get(), m.provider, m.model_id)
+                status.configure(text=f"Assigned {role_var.get()} → {m.provider}/{m.model_id}")
+                self._last_status = None
+                self.refresh()
+            except Exception as exc:
+                status.configure(text=f"Assign failed: {exc}")
+
+        ttk.Button(bottom, text="Refresh All", command=refresh_catalog, style="Accent.TButton").pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(bottom, text="Assign", command=assign_selected).pack(side=tk.RIGHT)
+        refresh_catalog()

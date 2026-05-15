@@ -35,7 +35,7 @@ _RED = "#f85149"
 _ORANGE = "#f0883e"
 _BORDER = "#30363d"
 
-PROVIDER_CHOICES = ["ollama", "openai", "gemini", "anthropic", "llamacpp", "null"]
+PROVIDER_CHOICES = ["ollama", "nvidia", "openai", "gemini", "anthropic", "llamacpp", "null"]
 
 PROFILE_INFO = {
     "offline": ("Offline", "All core roles use local Ollama models. Best privacy, no cloud tokens."),
@@ -130,6 +130,8 @@ class ModelSetupWizard(tk.Toplevel):
             "GEMINI_API_KEY": tk.StringVar(value=self.env.get("GEMINI_API_KEY", "")),
             "OPENAI_API_KEY": tk.StringVar(value=self.env.get("OPENAI_API_KEY", "")),
             "OPENAI_BASE_URL": tk.StringVar(value=self.env.get("OPENAI_BASE_URL", "https://api.openai.com/v1")),
+            "NVIDIA_NIM_API_KEY": tk.StringVar(value=self.env.get("NVIDIA_NIM_API_KEY", "")),
+            "NVIDIA_NIM_BASE_URL": tk.StringVar(value=self.env.get("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")),
             "ANTHROPIC_API_KEY": tk.StringVar(value=self.env.get("ANTHROPIC_API_KEY", "")),
             "LLAMACPP_HOST": tk.StringVar(value=self.env.get("LLAMACPP_HOST", "http://localhost:8080")),
         }

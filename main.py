@@ -253,6 +253,7 @@ async def run_with_chat(kernel: Kernel) -> None:
                 print("Jarvis commands:")
                 print("  /status, /modules, /events, /runtime, /doctor (external), /exit")
                 print("  /models, /model-health, /model-test [role]")
+                print("  /model-discover, /model-catalog, /model-assign <role> <provider>/<model>")
                 print("  /voice, /voice-mics, /voice-test-pyttsx3, /voice-test-piper")
                 print("  /mute, /unmute, /stop-speaking, /tts-status")
                 print("  /ambient-status, /emotion-voice-status")
@@ -382,6 +383,37 @@ async def run_with_chat(kernel: Kernel) -> None:
                     Priority.COGNITIVE,
                 )
                 await wait_action_response()
+                continue
+
+            if lower in {"/model-discover", "/model-catalog", "/model-refresh"} or lower.startswith("/model-discover "):
+                try:
+                    from scripts.model_discovery import discover_models, format_catalog
+                    providers = None
+                    parts = user_text.split(maxsplit=1)
+                    if len(parts) == 2:
+                        providers = [x.strip() for x in parts[1].replace(",", " ").split() if x.strip()]
+                    print(format_catalog(discover_models(providers=providers)) + "\n")
+                except Exception as exc:
+                    print(f"Jarvis: model discovery failed: {exc}\n")
+                continue
+
+            if lower.startswith("/model-assign "):
+                try:
+                    from scripts.model_discovery import assign_role
+                    parts = user_text.split(maxsplit=2)
+                    if len(parts) < 3:
+                        print("Usage: /model-assign <role> <provider>/<model_id>\n")
+                        continue
+                    role = parts[1].strip()
+                    spec = parts[2].strip()
+                    if "/" in spec:
+                        provider, model_id = spec.split("/", 1)
+                    else:
+                        provider, model_id = "ollama", spec
+                    path = assign_role(role, provider, model_id)
+                    print(f"Jarvis: assigned {role} → {provider}/{model_id}\nSaved to: {path}\nRestart JAV or reopen desktop to reload model router.\n")
+                except Exception as exc:
+                    print(f"Jarvis: model assignment failed: {exc}\n")
                 continue
 
             if lower in {"/models", "/model-status", "/model-health", "/model-profile"}:
@@ -1057,6 +1089,7 @@ def main() -> None:
     parser.add_argument("--doctor", action="store_true", help="Run startup diagnostics and dependency checks")
     parser.add_argument("--voice-doctor", action="store_true", help="Run voice setup diagnostics without starting the kernel")
     parser.add_argument("--model-doctor", action="store_true", help="Run model setup diagnostics without starting the kernel")
+    parser.add_argument("--model-discover", nargs="*", help="Discover available models across providers. Optional provider names: ollama nvidia openai anthropic gemini llamacpp")
     parser.add_argument("--voice-list-mics", action="store_true", help="List available microphone/input devices")
     parser.add_argument("--voice-test-pyttsx3", nargs="?", const="JAV pyttsx3 voice test.", help="Speak a short test phrase through pyttsx3")
     parser.add_argument("--voice-test-piper", nargs="?", const="JAV Piper voice test.", help="Speak a short test phrase through Piper")
@@ -1102,6 +1135,10 @@ def main() -> None:
     if args.model_doctor:
         from scripts.model_setup import main as model_setup_main
         sys.exit(model_setup_main())
+
+    if args.model_discover is not None:
+        from scripts.model_discovery import main as model_discovery_main
+        sys.exit(model_discovery_main(args.model_discover))
 
     if args.voice_doctor or args.voice_list_mics or args.voice_test_pyttsx3 is not None or args.voice_test_piper is not None:
         from scripts import voice_setup

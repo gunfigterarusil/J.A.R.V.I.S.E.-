@@ -137,6 +137,9 @@ def _norm_provider_type(value: str) -> str:
         "claude": "anthropic",
         "llama_cpp": "llamacpp",
         "llama.cpp": "llamacpp",
+        "nvidia": "nvidia",
+        "nvidia_nim": "nvidia",
+        "nim": "nvidia",
     }
     return aliases.get(v, v)
 
@@ -756,6 +759,7 @@ class LLMRouter:
         self._providers: Dict[str, LLMProvider] = {}
         self._provider_meta: Dict[str, Dict[str, Any]] = {}
         self._role_provider_keys: Dict[str, str] = {}
+        self._role_specs: Dict[str, Dict[str, str]] = {}
         self._null = NullProvider()
         self._routing: Dict[TaskType, List[str]] = {k: list(v) for k, v in _DEFAULT_ROUTING.items()}
         self._config = config
@@ -781,6 +785,8 @@ class LLMRouter:
                 role_spec["model"] = model_override
             profile[role] = role_spec
 
+        self._role_specs = {r: dict(spec) for r, spec in profile.items()}
+
         # Legacy base providers remain registered as generic fallbacks.
         self.register_provider("ollama", OllamaProvider(
             getattr(config, "ollama_host", "http://localhost:11434"),
@@ -796,6 +802,15 @@ class LLMRouter:
                 base_url=getattr(config, "openai_base_url", "https://api.openai.com/v1"),
                 timeout=getattr(config, "default_timeout", 60.0),
             ), role="fallback", provider_type="openai", model=getattr(config, "openai_model", "gpt-4o"))
+
+        nvidia_key = getattr(config, "nvidia_nim_api_key", "")
+        if nvidia_key:
+            self.register_provider("nvidia", OpenAICompatibleProvider(
+                api_key=nvidia_key,
+                model=getattr(config, "nvidia_nim_model", "") or getattr(config, "openai_model", "gpt-4o"),
+                base_url=getattr(config, "nvidia_nim_base_url", "https://integrate.api.nvidia.com/v1"),
+                timeout=getattr(config, "default_timeout", 60.0),
+            ), role="fallback", provider_type="nvidia", model=getattr(config, "nvidia_nim_model", ""))
 
         gemini_key = getattr(config, "gemini_api_key", "")
         if gemini_key:
@@ -856,6 +871,11 @@ class LLMRouter:
                 if not api_key:
                     return None
                 provider = OpenAICompatibleProvider(api_key, model or getattr(config, "openai_model", "gpt-4o"), getattr(config, "openai_base_url", "https://api.openai.com/v1"), getattr(config, "default_timeout", 60.0))
+            elif provider_type == "nvidia":
+                api_key = getattr(config, "nvidia_nim_api_key", "") or getattr(config, "openai_api_key", "")
+                if not api_key:
+                    return None
+                provider = OpenAICompatibleProvider(api_key, model or getattr(config, "nvidia_nim_model", "") or getattr(config, "openai_model", "gpt-4o"), getattr(config, "nvidia_nim_base_url", "https://integrate.api.nvidia.com/v1"), getattr(config, "default_timeout", 60.0))
             elif provider_type == "gemini":
                 api_key = getattr(config, "gemini_api_key", "")
                 if not api_key:
@@ -959,20 +979,33 @@ class LLMRouter:
                 "model": meta.get("model", provider.name),
             })
         roles = {}
-        for role, key in self._role_provider_keys.items():
-            provider = self._providers.get(key)
-            meta = dict(self._provider_meta.get(key, {}))
+        all_roles = list(dict.fromkeys(list(self._role_specs.keys()) + list(self._role_provider_keys.keys())))
+        for role in all_roles:
+            key = self._role_provider_keys.get(role, "")
+            provider = self._providers.get(key) if key else None
+            meta = dict(self._provider_meta.get(key, {})) if key else {}
+            spec = dict(self._role_specs.get(role, {}))
             try:
                 available = bool(provider.is_available) if provider else False
             except Exception:
                 available = False
+            if provider:
+                detail = getattr(provider, "last_error", "")
+                provider_name = provider.name
+            else:
+                ptype = spec.get("provider", "")
+                if ptype in {"openai", "gemini", "anthropic", "nvidia"}:
+                    detail = f"provider not created; missing API key for {ptype}"
+                else:
+                    detail = "provider not created"
+                provider_name = f"{ptype}/{spec.get('model', '')}".strip("/")
             roles[role] = {
                 "provider_key": key,
-                "provider": meta.get("provider_type") or (provider.name if provider else key),
-                "provider_name": provider.name if provider else key,
-                "model": meta.get("model") or (provider.name if provider else ""),
+                "provider": meta.get("provider_type") or spec.get("provider", ""),
+                "provider_name": provider_name,
+                "model": meta.get("model") or spec.get("model", ""),
                 "available": available,
-                "detail": getattr(provider, "last_error", "") if provider else "provider not created",
+                "detail": detail,
             }
         routes = {task.value: [p for p in prefs] for task, prefs in self._routing.items()}
         return {

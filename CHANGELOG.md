@@ -1,5 +1,15 @@
 # Changelog
 
+## V18.2 — Model Discovery + Provider Catalog
+
+- Added `scripts/model_discovery.py` with unified model discovery across Ollama, OpenAI-compatible APIs, NVIDIA NIM, Anthropic, Gemini and llama.cpp.
+- Added `python main.py --model-discover` and chat commands `/model-discover`, `/model-catalog`, `/model-assign <role> <provider>/<model>`.
+- Added NVIDIA NIM config fields: `NVIDIA_NIM_API_KEY`, `NVIDIA_NIM_BASE_URL`, `NVIDIA_NIM_MODEL`.
+- Added provider role suggestions: code, vision, embedding, fast, reason, critic and action.
+- Added desktop **Model Catalog** window from the Models panel.
+- Doctor now reports model discovery state separately from model router role health.
+
+
 ## V18.1 — README / Install Guide Cleanup
 
 - Reworked README structure so install, first launch, build, portable and installer instructions are at the top.

@@ -741,3 +741,43 @@ python scripts/clean_build.py
 5. UI 2.0 на PySide6/Tauri, якщо Tkinter стане тісним;
 6. Smart-home / Android / remote client.
 
+
+## Model Discovery / Model Catalog
+
+JAV can discover available models instead of forcing you to type model IDs by hand.
+
+```bash
+python main.py --model-discover
+python main.py --model-discover ollama nvidia
+```
+
+In chat:
+
+```text
+/model-discover
+/model-catalog
+/model-assign fast ollama/qwen2.5:7b
+/model-assign code nvidia/qwen/qwen2.5-coder-32b-instruct
+/model-test fast
+```
+
+Supported discovery sources:
+
+- Ollama local models via `OLLAMA_HOST/api/tags`;
+- OpenAI-compatible endpoints via `/v1/models`;
+- NVIDIA NIM preset via `NVIDIA_NIM_API_KEY` and `NVIDIA_NIM_BASE_URL`;
+- Anthropic Models API;
+- Gemini Models API;
+- llama.cpp server health/manual fallback;
+- curated fallback catalogs when an API key is not configured.
+
+For NVIDIA NIM use:
+
+```env
+NVIDIA_NIM_API_KEY=your_key
+NVIDIA_NIM_BASE_URL=https://integrate.api.nvidia.com/v1
+MODEL_REASON_PROVIDER=nvidia
+MODEL_REASON_NAME=exact_model_id_from_catalog
+```
+
+The desktop **Models** panel now has a **Model Catalog** button where you can refresh providers and assign a selected model to `fast`, `reason`, `code`, `critic`, `vision`, `embedding`, or `action`.
