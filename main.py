@@ -227,7 +227,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /models, /system, /proactive, /daily-summary, /model-health, /see, /vision, /gui, /gui-task, /gui-auto, /gui-step, /gui-status, /gui-cancel, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-retry, /task-report, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
+    print("Jarvis chat mode. Type /models, /system, /proactive, /daily-summary, /model-health, /see, /vision, /gui, /gui-task, /gui-auto, /gui-step, /gui-status, /gui-cancel, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-retry, /task-report, /task-auto, /skills, /skill, /learn-skill, /knowledge, /kg, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -351,6 +351,54 @@ async def run_with_chat(kernel: Kernel) -> None:
                 task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
                 kernel.event_bus.emit(
                     CognitiveEvent(type="gui_task_cancel_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+
+            if lower in {"/skills", "/skill-status", "/skills-status", "/skill-list"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="skill_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+            if lower.startswith("/skill ") or lower.startswith("/find-skill "):
+                query = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="skill_search_requested", data={"query": query, "top_k": 6, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+            if lower.startswith("/learn-skill "):
+                rest = user_text.split(maxsplit=1)[1].strip()
+                if "::" in rest:
+                    name, steps = [x.strip() for x in rest.split("::", 1)]
+                else:
+                    name, steps = rest, ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="skill_store_requested", data={"name": name, "steps": steps, "source": "cli_chat", "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+            if lower in {"/knowledge", "/kg", "/knowledge-graph"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="knowledge_graph_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+            if lower.startswith("/knowledge ") or lower.startswith("/kg "):
+                query = user_text.split(maxsplit=1)[1].strip()
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="knowledge_query_requested", data={"query": query, "top_k": 8, "respond": True}, source_module="cli_chat"),
                     Priority.COGNITIVE,
                 )
                 await wait_action_response(timeout=30.0)
@@ -741,6 +789,10 @@ def init_portable_layout(target: str | None = None) -> Path:
         "PROACTIVE_MIN_IMPORTANCE": "0.55",
         "PROACTIVE_COOLDOWN_SECONDS": "300",
         "PROACTIVE_DAILY_SUMMARY_ENABLED": "true",
+        "SKILL_LEARNING_ENABLED": "true",
+        "SKILL_AUTO_LEARN_ENABLED": "true",
+        "SKILL_MAX_SKILLS": "1000",
+        "KNOWLEDGE_GRAPH_MAX_EDGES": "5000",
     }
     existing = {line.split("=", 1)[0].strip() for line in lines if "=" in line and not line.lstrip().startswith("#")}
     out = list(lines)

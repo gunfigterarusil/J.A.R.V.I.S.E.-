@@ -259,6 +259,23 @@ class ActionIntentModule(CognitiveModule):
             return "event", "proactive_status_requested", {"respond": True}, ""
         if any(p in lower for p in ["daily summary", "денний звіт", "щоденний звіт", "підсумок дня", "companion summary", "зроби підсумок"]):
             return "event", "daily_summary_requested", {"respond": True}, ""
+        # V14 skill learning / knowledge graph.
+        if any(p in lower for p in ["статус навичок", "покажи навички", "skill status", "skills status", "бібліотека навичок"]):
+            return "event", "skill_status_requested", {"respond": True}, ""
+        m = re.search(r"(?:знайди навичку|пошукай навичку|яка навичка|find skill|search skill|skill for)\s+(.+)$", raw, flags=re.IGNORECASE)
+        if m:
+            return "event", "skill_search_requested", {"query": m.group(1).strip(), "top_k": 6, "respond": True}, ""
+        m = re.search(r"(?:запам.?ятай навичку|навчись робити|learn skill|store skill)\s+(.+?)(?:\s*::\s*(.+))?$", raw, flags=re.IGNORECASE | re.DOTALL)
+        if m:
+            name = m.group(1).strip()
+            steps = (m.group(2) or "").strip()
+            return "event", "skill_store_requested", {"name": name, "steps": steps, "source": "natural_language", "respond": True}, ""
+        if any(p in lower for p in ["покажи граф знань", "knowledge graph", "граф знань", "статус знань"]):
+            return "event", "knowledge_graph_status_requested", {"respond": True}, ""
+        m = re.search(r"(?:що ти знаєш про|пошукай в графі|query knowledge|knowledge about)\s+(.+)$", raw, flags=re.IGNORECASE)
+        if m:
+            return "event", "knowledge_query_requested", {"query": m.group(1).strip(), "top_k": 8, "respond": True}, ""
+
 
         # Status/self/world/settings.
         if any(p in lower for p in ["статус пам", "стан пам", "де пам", "storage status", "memory status", "покажи пам", "покажи стан пам", "де зберігається пам"]):
@@ -392,7 +409,7 @@ class ActionIntentModule(CognitiveModule):
             "supported_natural_intents": [
                 "screen_read", "gui_understanding_v9_6", "sleep_consolidate", "self_status", "world_status", "settings_help",
                 "action_status", "set_safety", "approve_pending", "deny_pending", "list_files", "read_file",
-                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4", "gui_automation_v12", "system_monitor_v11", "proactive_companion_v11",
+                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4", "gui_automation_v12", "system_monitor_v11", "proactive_companion_v11", "skill_learning_v14", "knowledge_graph_v14",
             ],
         })
         return base

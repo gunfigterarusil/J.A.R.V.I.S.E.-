@@ -138,6 +138,14 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
         SettingSpec("GUI_AUTOMATION_MAX_RETRIES_PER_STEP", "Max retries per step", "2"),
         SettingSpec("GUI_AUTOMATION_ALLOWED_ACTIONS", "Allowed GUI action names", "observe,done,open_url,open_app,click_xy,click_text,type_text,press,hotkey,scroll,wait", kind="list"),
     ],
+
+    "Skill Learning / Knowledge Graph": [
+        SettingSpec("SKILL_LEARNING_ENABLED", "Enable V14 skill learning", "true", kind="bool"),
+        SettingSpec("SKILL_AUTO_LEARN_ENABLED", "Auto-learn from tasks/repair/web/actions", "true", kind="bool"),
+        SettingSpec("SKILL_MIN_CONFIDENCE", "Minimum confidence to store semantic lessons", "0.55"),
+        SettingSpec("SKILL_MAX_SKILLS", "Maximum stored skills", "1000"),
+        SettingSpec("KNOWLEDGE_GRAPH_MAX_EDGES", "Maximum knowledge graph edges", "5000"),
+    ],
     "Memory / Sleep": [
         SettingSpec("MEMORY_STM_LIFETIME_SECONDS", "Short-term memory lifetime seconds", "30"),
         SettingSpec("MEMORY_EPISODIC_RETENTION_DAYS", "Episodic retention days", "730"),

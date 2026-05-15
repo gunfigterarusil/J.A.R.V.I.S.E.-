@@ -416,6 +416,17 @@ class MonologueConfig:
     interval: float = field(default_factory=lambda: float(os.environ.get("MONOLOGUE_INTERVAL", "6.0")))
 
 
+
+
+@dataclass
+class SkillLearningConfig:
+    """V14 procedural skill learning and lightweight knowledge graph settings."""
+    enabled: bool = field(default_factory=lambda: _env_bool("SKILL_LEARNING_ENABLED", "true"))
+    auto_learn: bool = field(default_factory=lambda: _env_bool("SKILL_AUTO_LEARN_ENABLED", "true"))
+    min_confidence: float = field(default_factory=lambda: float(os.environ.get("SKILL_MIN_CONFIDENCE", "0.55")))
+    max_skills: int = field(default_factory=lambda: int(os.environ.get("SKILL_MAX_SKILLS", "1000")))
+    max_graph_edges: int = field(default_factory=lambda: int(os.environ.get("KNOWLEDGE_GRAPH_MAX_EDGES", "5000")))
+
 @dataclass
 class SystemMonitorConfig:
     """V11 local machine/system/model monitoring settings."""
@@ -574,6 +585,11 @@ class KernelConfig:
     # V9.1 long-term memory / portable data directory
     # ------------------------------------------------------------------
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+
+    # ------------------------------------------------------------------
+    # V14 skill learning + knowledge graph
+    # ------------------------------------------------------------------
+    skills: SkillLearningConfig = field(default_factory=SkillLearningConfig)
 
     # ------------------------------------------------------------------
     # V11 system monitor + proactive companion

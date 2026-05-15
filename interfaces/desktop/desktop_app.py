@@ -147,6 +147,8 @@ class DesktopApp:
         add_button(controls, "Proactive status", self.proactive_status)
         add_button(controls, "Daily summary", self.daily_summary)
         add_button(controls, "Action status", self.action_status)
+        add_button(controls, "Skill library status", lambda: self._prefill("покажи навички"))
+        add_button(controls, "Knowledge graph status", lambda: self._prefill("покажи граф знань"))
         add_button(controls, "Web search help", lambda: self._prefill("пошукай в інтернеті "))
         add_button(controls, "Web learn help", lambda: self._prefill("вивчи "))
         add_button(controls, "Task status", self.task_status)
@@ -193,6 +195,11 @@ class DesktopApp:
             "проаналізуй екран і зроби наступний безпечний GUI крок",
             "продовжуй GUI задачу",
             "статус GUI",
+            "покажи навички",
+            "знайди навичку repair python error",
+            "запам'ятай навичку backup project :: 1) list files; 2) copy important files; 3) verify backup",
+            "покажи граф знань",
+            "що ти знаєш про vector memory",
         ]
         for text in examples:
             add_button(commands, text, lambda t=text: self._prefill(t))

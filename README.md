@@ -1724,3 +1724,8 @@ V12 ✅ Advanced Vision + GUI Automation 2.0
 V13 ✅ Advanced Task Orchestrator MVP
 V14 ⏭ Skill Learning + Knowledge Graph
 ```
+
+
+## V14 Skill Learning + Knowledge Graph MVP
+
+Added procedural skills, auto-learning from tasks/repair/web/action events, lightweight knowledge graph, `/skills`, `/skill`, `/learn-skill`, `/knowledge`, and Settings Center controls.
