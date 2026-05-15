@@ -292,3 +292,16 @@ Run diagnostics:
 python main.py --model-doctor
 ```
 
+
+## V17 — Voice Companion Mode
+
+- Added push-to-talk voice mode:
+  - `python main.py --voice-ptt`
+  - `run_voice_ptt.bat` / `run_voice_ptt.sh`
+- Added voice companion runtime status: `idle`, `listening`, `thinking`, `speaking`, `muted`, `timeout`, `error`, `stopped`.
+- Voice status is emitted as `voice_status` events and written to `runtime_voice_status.json` inside the configured data directory.
+- Added TTS mute/unmute/toggle/interrupt event handling.
+- Added chat commands: `/mute`, `/unmute`, `/stop-speaking`, `/tts-status`.
+- Added spoken control phrases for mute/unmute/interrupt, configurable through `.env`.
+- Desktop Voice tab can now start continuous or push-to-talk voice process.
+- Settings Center exposes voice input mode, mute phrases, unmute phrases and start-muted mode.

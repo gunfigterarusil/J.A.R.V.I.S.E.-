@@ -369,7 +369,8 @@ class DesktopApp:
         voice = self._section(tab, "Voice companion", "Start the separate voice loop when microphone/STT/TTS are configured.")
         self.voice_status_label = ttk.Label(voice, text="Voice: stopped", style="Muted.Card.TLabel")
         self.voice_status_label.pack(anchor="w", pady=(0, 6))
-        ttk.Button(voice, text="🎙 Start / stop voice mode", command=self.toggle_voice_process).pack(fill=tk.X, pady=3)
+        ttk.Button(voice, text="🎙 Start / stop continuous voice", command=self.toggle_voice_process).pack(fill=tk.X, pady=3)
+        ttk.Button(voice, text="🎧 Start / stop push-to-talk voice", command=self.toggle_voice_ptt_process).pack(fill=tk.X, pady=3)
         ttk.Button(voice, text="🧪 Voice setup report", command=self.voice_setup_report).pack(fill=tk.X, pady=3)
         ttk.Button(voice, text="🔊 Test pyttsx3 fallback", command=self.voice_test_pyttsx3).pack(fill=tk.X, pady=3)
 
@@ -487,7 +488,8 @@ class DesktopApp:
             ("🗣 Test Piper TTS", self.voice_test_piper),
             ("📦 Copy voice dependency install command", self.copy_voice_install_command),
             ("⚙ Open Settings", self.open_settings),
-            ("▶ Start / stop voice process", self.toggle_voice_process),
+            ("▶ Start / stop continuous voice process", self.toggle_voice_process),
+            ("🎧 Start / stop push-to-talk voice process", self.toggle_voice_ptt_process),
         ]:
             ttk.Button(info, text=text, command=cmd).pack(fill=tk.X, pady=3)
         self.voice_setup_output = scrolledtext.ScrolledText(tab.body, height=20, wrap=tk.WORD, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
@@ -1200,7 +1202,10 @@ class DesktopApp:
         except Exception:
             self._append("system", cmd)
 
-    def toggle_voice_process(self) -> None:
+    def toggle_voice_ptt_process(self) -> None:
+        self.toggle_voice_process(push_to_talk=True)
+
+    def toggle_voice_process(self, push_to_talk: bool = False) -> None:
         if self.voice_process and self.voice_process.poll() is None:
             try:
                 self.voice_process.terminate()
@@ -1211,12 +1216,13 @@ class DesktopApp:
         try:
             if getattr(sys, "frozen", False):
                 root = Path(sys.executable).resolve().parent
-                cmd = [sys.executable, "--voice"]
+                cmd = [sys.executable, "--voice-ptt"] if push_to_talk else [sys.executable, "--voice"]
             else:
                 root = Path(__file__).resolve().parents[2]
-                cmd = [sys.executable, str(root / "main.py"), "--voice"]
+                cmd = [sys.executable, str(root / "main.py"), "--voice-ptt"] if push_to_talk else [sys.executable, str(root / "main.py"), "--voice"]
             self.voice_process = subprocess.Popen(cmd, cwd=str(root))
-            self._append("system", f"Voice process started pid={self.voice_process.pid}. It runs as a separate process.")
+            mode = "push-to-talk" if push_to_talk else "continuous"
+            self._append("system", f"Voice process started in {mode} mode pid={self.voice_process.pid}. It runs as a separate process.")
         except Exception as exc:
             self._append("system", f"Could not start voice process: {exc}")
 

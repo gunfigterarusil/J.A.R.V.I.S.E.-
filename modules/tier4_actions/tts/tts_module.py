@@ -41,6 +41,7 @@ class TTSModule(CognitiveModule):
         self._active_backend = ""
         self._configured_backend = "auto"
         self._stop_event: threading.Event = threading.Event()
+        self._muted = False
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -51,9 +52,10 @@ class TTSModule(CognitiveModule):
             and getattr(cfg, "tts_enabled", True)
             and self._configured_backend != "none"
         )
+        self._muted = bool(getattr(cfg, "start_muted", False))
         kernel.event_bus.register_consumer(
             self.module_id,
-            ["response_generated", "tts_say", "tts_interrupt"],
+            ["response_generated", "tts_say", "tts_interrupt", "tts_mute", "tts_unmute", "tts_toggle_mute", "tts_status_requested"],
         )
         if not self._voice_enabled:
             logger.info("[TTS] Disabled. Start with --voice and VOICE_TTS_ENABLED=true to enable output.")
@@ -91,6 +93,28 @@ class TTSModule(CognitiveModule):
     async def on_event(self, event: Event) -> None:
         if event.type == "tts_interrupt":
             self._stop_event.set()
+            if self.kernel:
+                self.kernel.event_bus.emit(
+                    Event(type="tts_interrupted", data={"reason": event.data.get("reason", "manual")}, source_module=self.module_id),
+                    Priority.BACKGROUND,
+                )
+            return
+        if event.type == "tts_mute":
+            self._muted = True
+            self._stop_event.set()
+            self._emit_status("muted")
+            return
+        if event.type == "tts_unmute":
+            self._muted = False
+            self._emit_status("unmuted")
+            return
+        if event.type == "tts_toggle_mute":
+            self._muted = not self._muted
+            self._stop_event.set()
+            self._emit_status("muted" if self._muted else "unmuted")
+            return
+        if event.type == "tts_status_requested":
+            self._emit_status("status")
             return
         if not self._voice_enabled or not self._backends:
             return
@@ -100,6 +124,13 @@ class TTSModule(CognitiveModule):
         if not text:
             return
         turn_id = str(event.data.get("turn_id", "") or "")
+        if self._muted:
+            if self.kernel:
+                self.kernel.event_bus.emit(
+                    Event(type="tts_muted", data={"text": text[:300], "turn_id": turn_id, "reason": "muted"}, source_module=self.module_id),
+                    Priority.BACKGROUND,
+                )
+            return
         await self._speak(text, turn_id=turn_id)
 
     async def _speak(self, text: str, turn_id: str = "") -> None:
@@ -146,6 +177,24 @@ class TTSModule(CognitiveModule):
                     Priority.BACKGROUND,
                 )
 
+    def _emit_status(self, reason: str = "status") -> None:
+        if not self.kernel:
+            return
+        self.kernel.event_bus.emit(
+            Event(
+                type="tts_status",
+                data={
+                    "reason": reason,
+                    "muted": self._muted,
+                    "voice_enabled": self._voice_enabled,
+                    "active_backend": self._active_backend,
+                    "backend_mode": self._configured_backend,
+                },
+                source_module=self.module_id,
+            ),
+            Priority.BACKGROUND,
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         base = super().to_dict()
         base.update(
@@ -155,6 +204,7 @@ class TTSModule(CognitiveModule):
                 "active_backend": self._active_backend,
                 "available_backends": [name for name, _ in self._backends],
                 "last_error": self._last_error,
+                "muted": self._muted,
             }
         )
         return base

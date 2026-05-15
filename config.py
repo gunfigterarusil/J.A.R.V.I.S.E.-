@@ -230,11 +230,15 @@ class VoiceConfig:
     record_seconds: float = field(default_factory=lambda: float(os.environ.get("VOICE_RECORD_SECONDS", "5")))
     energy_threshold: float = field(default_factory=lambda: float(os.environ.get("VOICE_ENERGY_THRESHOLD", "0.005")))
     wake_word: str = field(default_factory=lambda: os.environ.get("VOICE_WAKE_WORD", ""))
+    input_mode: str = field(default_factory=lambda: os.environ.get("VOICE_INPUT_MODE", "continuous"))  # continuous|push_to_talk
+    push_to_talk_prompt: str = field(default_factory=lambda: os.environ.get("VOICE_PUSH_TO_TALK_PROMPT", "Press Enter to speak, or type q + Enter to quit: "))
     vad_enabled: bool = field(default_factory=lambda: os.environ.get("VOICE_VAD_ENABLED", "true").lower() == "true")
     vad_max_silence_ms: int = field(default_factory=lambda: int(os.environ.get("VOICE_VAD_MAX_SILENCE_MS", "700")))
     vad_min_speech_ms: int = field(default_factory=lambda: int(os.environ.get("VOICE_VAD_MIN_SPEECH_MS", "150")))
     vad_max_duration_s: float = field(default_factory=lambda: float(os.environ.get("VOICE_VAD_MAX_DURATION_S", "30")))
-    interrupt_phrases: str = field(default_factory=lambda: os.environ.get("VOICE_INTERRUPT_PHRASES", "stop,зупинись,стоп"))
+    interrupt_phrases: str = field(default_factory=lambda: os.environ.get("VOICE_INTERRUPT_PHRASES", "stop,зупинись,стоп,замовкни,тихо"))
+    mute_phrases: str = field(default_factory=lambda: os.environ.get("VOICE_MUTE_PHRASES", "mute,мовчи,замовкни,не говори"))
+    unmute_phrases: str = field(default_factory=lambda: os.environ.get("VOICE_UNMUTE_PHRASES", "unmute,говори,можеш говорити"))
     print_transcript: bool = field(default_factory=lambda: os.environ.get("VOICE_PRINT_TRANSCRIPT", "true").lower() == "true")
     response_timeout: float = field(default_factory=lambda: float(os.environ.get("VOICE_RESPONSE_TIMEOUT", "90")))
     tts_wait_timeout: float = field(default_factory=lambda: float(os.environ.get("VOICE_TTS_WAIT_TIMEOUT", "45")))
@@ -242,6 +246,8 @@ class VoiceConfig:
 
     # Text-to-speech
     tts_enabled: bool = field(default_factory=lambda: os.environ.get("VOICE_TTS_ENABLED", "true").lower() == "true")
+    start_muted: bool = field(default_factory=lambda: os.environ.get("VOICE_START_MUTED", "false").lower() == "true")
+    status_file: str = field(default_factory=lambda: os.environ.get("VOICE_STATUS_FILE", ""))
     tts_backend: str = field(default_factory=lambda: os.environ.get("VOICE_TTS_BACKEND", "auto"))  # auto|piper|pyttsx3|none
 
     # Piper TTS

@@ -98,6 +98,11 @@ def collect_voice_checks() -> List[VoiceCheck]:
     except Exception as exc:
         checks.append(VoiceCheck("Audio devices", "WARN", f"could not query audio devices: {exc}", "Install sounddevice and check OS audio drivers"))
 
+    input_mode = os.environ.get("VOICE_INPUT_MODE", "continuous")
+    wake_word = os.environ.get("VOICE_WAKE_WORD", "")
+    start_muted = os.environ.get("VOICE_START_MUTED", "false")
+    checks.append(VoiceCheck("Voice companion mode", "INFO", f"input_mode={input_mode}, wake_word={bool(wake_word)}, start_muted={start_muted}"))
+
     stt_model = os.environ.get("VOICE_STT_MODEL", "small")
     stt_device = os.environ.get("VOICE_STT_DEVICE", "cpu")
     stt_compute = os.environ.get("VOICE_STT_COMPUTE_TYPE", "int8")
@@ -118,6 +123,8 @@ def format_voice_report(checks: Optional[List[VoiceCheck]] = None) -> str:
     lines.append("  python scripts/bootstrap_dependencies.py --with-voice")
     lines.append("Start voice mode:")
     lines.append("  python main.py --voice")
+    lines.append("Push-to-talk mode:")
+    lines.append("  python main.py --voice-ptt")
     return "\n".join(lines)
 
 

@@ -104,6 +104,7 @@ python main.py --voice-doctor
 python main.py --voice-list-mics
 python main.py --voice-test-pyttsx3 "JAV voice test"
 python main.py --voice-test-piper "JAV voice test"
+python main.py --voice-ptt
 ```
 
 У чаті доступні команди:
@@ -113,6 +114,9 @@ python main.py --voice-test-piper "JAV voice test"
 /voice-mics
 /voice-test-pyttsx3
 /voice-test-piper
+/mute
+/unmute
+/stop-speaking
 ```
 
 У desktop UI є вкладка **Voice**, де можна:
@@ -122,7 +126,8 @@ python main.py --voice-test-piper "JAV voice test"
 - протестувати pyttsx3 fallback;
 - протестувати Piper;
 - скопіювати команду встановлення voice-залежностей;
-- запустити/зупинити voice process.
+- запустити/зупинити continuous voice process;
+- запустити/зупинити push-to-talk voice process.
 
 Python-залежності для голосу:
 
@@ -131,6 +136,14 @@ python scripts/bootstrap_dependencies.py --with-voice
 ```
 
 Piper CLI і `.onnx` voice model встановлюються окремо. Якщо Piper не налаштований, JAV може використовувати `pyttsx3` як fallback.
+
+V17 Voice Companion режим додає:
+
+- `VOICE_INPUT_MODE=continuous|push_to_talk`;
+- `python main.py --voice-ptt` для безпечного push-to-talk запуску;
+- mute/unmute/stop-speaking через чат і голосові фрази;
+- статуси `idle/listening/thinking/speaking/muted/error`;
+- `runtime_voice_status.json` у папці памʼяті для відображення стану голосу.
 
 
 
@@ -233,7 +246,8 @@ python main.py --desktop
 ```bash
 python main.py              # headless kernel
 python main.py --chat       # термінальний чат
-python main.py --voice      # голосовий режим
+python main.py --voice      # голосовий режим continuous
+python main.py --voice-ptt  # push-to-talk голосовий режим
 python main.py --desktop    # desktop app
 python main.py --service    # фоновий service mode
 python scripts/watchdog.py  # watchdog із restart-on-crash

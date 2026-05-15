@@ -119,6 +119,10 @@ def write_launchers(dst: Path) -> None:
         "@echo off\r\ncd /d %~dp0\r\nJAV-Console.exe --voice-doctor\r\npause\r\n",
         encoding="utf-8",
     )
+    (dst / "run_voice_ptt.bat").write_text(
+        "@echo off\r\ncd /d %~dp0\r\nJAV-Console.exe --voice-ptt\r\npause\r\n",
+        encoding="utf-8",
+    )
     (dst / "run_model_doctor.bat").write_text(
         "@echo off\r\ncd /d %~dp0\r\nJAV-Console.exe --model-doctor\r\npause\r\n",
         encoding="utf-8",
@@ -137,11 +141,13 @@ def write_launchers(dst: Path) -> None:
     doctor.write_text('#!/usr/bin/env bash\ncd "$(dirname "$0")"\n./JAV-Console --doctor\n', encoding="utf-8")
     chat = dst / "run_chat.sh"
     chat.write_text('#!/usr/bin/env bash\ncd "$(dirname "$0")"\n./JAV-Console --chat\n', encoding="utf-8")
+    voice_ptt = dst / "run_voice_ptt.sh"
+    voice_ptt.write_text('#!/usr/bin/env bash\ncd "$(dirname "$0")"\n./JAV-Console --voice-ptt\n', encoding="utf-8")
     model_doc = dst / "run_model_doctor.sh"
     model_doc.write_text('#!/usr/bin/env bash\ncd "$(dirname "$0")"\n./JAV-Console --model-doctor\n', encoding="utf-8")
     setup = dst / "run_setup.sh"
     setup.write_text('#!/usr/bin/env bash\ncd "$(dirname "$0")"\n./JAV --setup &\n', encoding="utf-8")
-    for f in (sh, doctor, chat, setup):
+    for f in (sh, doctor, chat, voice_ptt, model_doc, setup):
         try:
             f.chmod(0o755)
         except Exception:

@@ -251,6 +251,7 @@ async def run_with_chat(kernel: Kernel) -> None:
                 print("  /status, /modules, /events, /runtime, /doctor (external), /exit")
                 print("  /models, /model-health, /model-test [role]")
                 print("  /voice, /voice-mics, /voice-test-pyttsx3, /voice-test-piper")
+                print("  /mute, /unmute, /stop-speaking, /tts-status")
                 print("  /memory, /recall <query>")
                 print("  /system, /proactive, /daily-summary")
                 print("  /see, /vision, /gui")
@@ -306,6 +307,38 @@ async def run_with_chat(kernel: Kernel) -> None:
                 test_piper(phrase)
                 print()
                 continue
+            if lower in {"/stop-speaking", "/stop", "/interrupt-tts"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="tts_interrupt", data={"reason": "cli_chat"}, source_module="cli_chat"),
+                    Priority.REALTIME,
+                )
+                print("Jarvis: TTS interrupt requested.\n")
+                continue
+
+            if lower in {"/mute", "/mute-voice", "/tts-mute"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="tts_mute", data={"reason": "cli_chat"}, source_module="cli_chat"),
+                    Priority.REALTIME,
+                )
+                print("Jarvis: Voice output muted.\n")
+                continue
+
+            if lower in {"/unmute", "/unmute-voice", "/tts-unmute"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="tts_unmute", data={"reason": "cli_chat"}, source_module="cli_chat"),
+                    Priority.REALTIME,
+                )
+                print("Jarvis: Voice output unmuted.\n")
+                continue
+
+            if lower in {"/tts-status", "/voice-output-status"}:
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="tts_status_requested", data={"respond": True}, source_module="cli_chat"),
+                    Priority.BACKGROUND,
+                )
+                print("Jarvis: TTS status requested. Check events/desktop status if TTS module is active.\n")
+                continue
+
 
             if lower in {"/memory", "/memory-status", "/storage"}:
                 kernel.event_bus.emit(
@@ -989,6 +1022,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Cognitive Brain Runtime")
     parser.add_argument("--web", action="store_true", help="Start web dashboard")
     parser.add_argument("--voice", action="store_true", help="Start voice mode: microphone STT + Piper/pyttsx3 TTS")
+    parser.add_argument("--voice-ptt", action="store_true", help="Start voice mode in push-to-talk mode (press Enter before each utterance)")
+    parser.add_argument("--voice-muted", action="store_true", help="Start voice mode muted; unmute by chat/event or voice phrase")
     parser.add_argument("--chat", action="store_true", help="Start terminal dialogue mode")
     parser.add_argument("--desktop", action="store_true", help="Start native desktop interface instead of browser UI")
     parser.add_argument("--service", action="store_true", help="Start headless service mode with heartbeat/logging for watchdog/systemd")
@@ -1053,6 +1088,8 @@ def main() -> None:
         print(voice_setup.format_voice_report())
         return
 
+    if args.voice_ptt:
+        args.voice = True
     selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat, args.desktop, args.service) if enabled)
     # A built desktop app should open the GUI on double-click. Source/dev mode
     # keeps the historical headless default for terminal users.
@@ -1083,6 +1120,10 @@ def main() -> None:
         )
     elif args.voice:
         cfg.voice.enabled = True
+        if args.voice_ptt:
+            cfg.voice.input_mode = "push_to_talk"
+        if args.voice_muted:
+            cfg.voice.start_muted = True
         kernel = build_kernel(cfg)
         asyncio.run(run_with_voice(kernel))
     elif args.desktop:
