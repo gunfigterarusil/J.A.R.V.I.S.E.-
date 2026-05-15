@@ -227,7 +227,7 @@ async def run_with_chat(kernel: Kernel) -> None:
         except asyncio.TimeoutError:
             print("Jarvis: No action response yet. Check whether action_executor is loaded and safety settings allow this action.\n")
 
-    print("Jarvis chat mode. Type /models, /system, /proactive, /daily-summary, /model-health, /see, /vision, /gui, /gui-task, /gui-auto, /gui-step, /gui-status, /gui-cancel, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
+    print("Jarvis chat mode. Type /models, /system, /proactive, /daily-summary, /model-health, /see, /vision, /gui, /gui-task, /gui-auto, /gui-step, /gui-status, /gui-cancel, /self, /world, /memory, /recall, /web-search, /web-learn, /task, /tasks, /task-step, /task-retry, /task-report, /task-auto, /sleep, /dream, /consolidate, /actions, /repair, /apply-repair, /ls, /read, /write, /search, /mkdir, /run, /safety, /approve, or /exit. Natural language works too.\n")
     try:
         while kernel.running or not kernel_task.done():
             user_text = await asyncio.to_thread(input, "You: ")
@@ -390,6 +390,26 @@ async def run_with_chat(kernel: Kernel) -> None:
                     Priority.COGNITIVE,
                 )
                 await wait_action_response(timeout=30.0)
+                continue
+
+            if lower.startswith("/task-report"):
+                task_id = user_text.split(maxsplit=1)[1].strip() if len(user_text.split(maxsplit=1)) > 1 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="task_chain_report_requested", data={"task_id": task_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=30.0)
+                continue
+
+            if lower.startswith("/task-retry"):
+                parts = user_text.split()
+                task_id = parts[1].strip() if len(parts) > 1 else ""
+                step_id = parts[2].strip() if len(parts) > 2 else ""
+                kernel.event_bus.emit(
+                    CognitiveEvent(type="task_chain_retry_requested", data={"task_id": task_id, "step_id": step_id, "respond": True}, source_module="cli_chat"),
+                    Priority.COGNITIVE,
+                )
+                await wait_action_response(timeout=120.0)
                 continue
 
             if lower.startswith("/task-step") or lower.startswith("/continue-task"):

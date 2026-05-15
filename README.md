@@ -1697,3 +1697,30 @@ GUI_AUTOMATION_SEMANTIC_CLICK_THRESHOLD=35
 GUI_AUTOMATION_MAX_RETRIES_PER_STEP=2
 GUI_AUTOMATION_ALLOWED_ACTIONS=observe,done,open_url,open_app,click_xy,click_text,type_text,press,hotkey,scroll,wait
 ```
+
+
+## V13 Advanced Task Orchestrator
+
+V13 adds stronger long-task autonomy: strategy A/B/C, step verification, retries, rollback guidance, progress scoring and full task reports.
+
+Commands:
+
+```text
+/task <goal>
+/task-auto <goal>
+/task-step [task_id]
+/task-retry [task_id] [step_id]
+/task-report [task_id]
+/task-resume [task_id]
+/task-cancel [task_id]
+```
+
+The orchestrator still uses the same safety layer. File writes, shell commands, repair application and GUI actions are never allowed to bypass V7 safety/approval.
+
+Roadmap update:
+
+```text
+V12 ✅ Advanced Vision + GUI Automation 2.0
+V13 ✅ Advanced Task Orchestrator MVP
+V14 ⏭ Skill Learning + Knowledge Graph
+```

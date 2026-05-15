@@ -69,6 +69,10 @@ class ActionIntentModule(CognitiveModule):
             self._emit_event("task_chain_step_requested", payload, event)
         elif kind == "task_status":
             self._emit_event("task_chain_status_requested", payload, event)
+        elif kind == "task_report":
+            self._emit_event("task_chain_report_requested", payload, event)
+        elif kind == "task_retry":
+            self._emit_event("task_chain_retry_requested", payload, event)
         elif kind == "task_cancel":
             self._emit_event("task_chain_cancel_requested", payload, event)
         elif kind == "task_resume":
@@ -303,6 +307,13 @@ class ActionIntentModule(CognitiveModule):
         if any(p in lower for p in ["статус задачі", "статус task", "task status", "покажи задачі", "активні задачі"]):
             m2 = re.search(r"(tc\d+)", lower)
             return "task_status", "task_chain_status_requested", {"task_id": m2.group(1) if m2 else ""}, ""
+        if any(p in lower for p in ["звіт задачі", "task report", "покажи звіт задачі", "повний звіт задачі"]):
+            m2 = re.search(r"(tc\d+)", lower)
+            return "task_report", "task_chain_report_requested", {"task_id": m2.group(1) if m2 else ""}, ""
+        if any(p in lower for p in ["повтори крок", "спробуй крок ще раз", "retry task", "task retry", "повтори задачу"]):
+            m2 = re.search(r"(tc\d+)", lower)
+            s2 = re.search(r"(s\d+)", lower)
+            return "task_retry", "task_chain_retry_requested", {"task_id": m2.group(1) if m2 else "", "step_id": s2.group(1) if s2 else ""}, ""
         if any(p in lower for p in ["скасуй задачу", "cancel task", "зупини задачу"]):
             m2 = re.search(r"(tc\d+)", lower)
             return "task_cancel", "task_chain_cancel_requested", {"task_id": m2.group(1) if m2 else ""}, ""

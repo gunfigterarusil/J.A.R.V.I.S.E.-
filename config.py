@@ -299,16 +299,22 @@ class CodeRepairConfig:
 
 @dataclass
 class TaskChainConfig:
-    """V9.4 autonomous/guided task chain settings.
+    """V13 advanced autonomous/guided task orchestrator settings.
 
-    A task chain decomposes a broad goal into safe steps. External effects still
-    go through V7 safety gates. Guided mode is default; auto mode can continue
-    low-risk steps until it hits a safety confirmation or completion.
+    V13 decomposes broad goals into strategy A/B/C, safe steps, verification,
+    retry and rollback guidance. External effects still go through V7 safety
+    gates. Guided mode is default; auto mode can continue low-risk verified
+    steps until it hits a safety confirmation or completion.
     """
     enabled: bool = field(default_factory=lambda: os.environ.get("TASK_CHAINS_ENABLED", "true").lower() == "true")
     auto_step_default: bool = field(default_factory=lambda: os.environ.get("TASK_CHAINS_AUTO_STEP_DEFAULT", "false").lower() == "true")
-    max_steps: int = field(default_factory=lambda: int(os.environ.get("TASK_CHAINS_MAX_STEPS", "8")))
-    step_timeout_seconds: float = field(default_factory=lambda: float(os.environ.get("TASK_CHAINS_STEP_TIMEOUT_SECONDS", "90")))
+    max_steps: int = field(default_factory=lambda: int(os.environ.get("TASK_CHAINS_MAX_STEPS", "12")))
+    step_timeout_seconds: float = field(default_factory=lambda: float(os.environ.get("TASK_CHAINS_STEP_TIMEOUT_SECONDS", "120")))
+    max_retries_per_step: int = field(default_factory=lambda: int(os.environ.get("TASK_CHAINS_MAX_RETRIES_PER_STEP", "2")))
+    verifier_enabled: bool = field(default_factory=lambda: os.environ.get("TASK_CHAINS_VERIFIER_ENABLED", "true").lower() == "true")
+    rollback_enabled: bool = field(default_factory=lambda: os.environ.get("TASK_CHAINS_ROLLBACK_ENABLED", "true").lower() == "true")
+    strategy_count: int = field(default_factory=lambda: int(os.environ.get("TASK_CHAINS_STRATEGY_COUNT", "3")))
+    auto_continue_after_safe_step: bool = field(default_factory=lambda: os.environ.get("TASK_CHAINS_AUTO_CONTINUE_AFTER_SAFE_STEP", "true").lower() == "true")
 
 
 @dataclass
