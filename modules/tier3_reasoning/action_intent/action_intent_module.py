@@ -381,7 +381,7 @@ class ActionIntentModule(CognitiveModule):
             "supported_natural_intents": [
                 "screen_read", "gui_understanding_v9_6", "sleep_consolidate", "self_status", "world_status", "settings_help",
                 "action_status", "set_safety", "approve_pending", "deny_pending", "list_files", "read_file",
-                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4", "gui_automation_v9_7", "system_monitor_v11", "proactive_companion_v11",
+                "search_files", "create_dir", "write_file", "append_file", "run_command", "web_search", "web_learn", "web_fetch", "code_repair_v9", "apply_repair_proposal", "task_chain_v9_4", "gui_automation_v12", "system_monitor_v11", "proactive_companion_v11",
             ],
         })
         return base

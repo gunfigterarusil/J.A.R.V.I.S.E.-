@@ -542,7 +542,10 @@ Everything is stored in `~/.jarvis_brain/`:
 | V9.5 | ✅ Done | Runtime / service mode: watchdog, heartbeat, rotating logs, health checks |
 | V9.6 | ✅ MVP Done | Real Vision + GUI Understanding: active window, UI/text elements, safe next-step suggestions |
 | V9.7 | ✅ MVP Done | Safe General GUI Automation: observe → reason → action → observe loop via safety gates |
-| V10 | Next | Android / server / robot bodies |
+| V10 | ✅ MVP Done | Modular role-based model/API router and profiles |
+| V11 | ✅ MVP Done | Proactive companion + system monitor |
+| V12 | ✅ MVP Done | Advanced Vision + GUI Automation 2.0: semantic targets, screenshot audit, verify-after-action loop |
+| V13 | Next | Advanced task orchestrator + rollback/retry/verifier |
 
 
 ### V8 desktop + conversational action MVP details
@@ -1641,4 +1644,56 @@ PROACTIVE_SPEAK_NOTIFICATIONS=false
 PROACTIVE_MIN_IMPORTANCE=0.55
 PROACTIVE_COOLDOWN_SECONDS=300
 PROACTIVE_DAILY_SUMMARY_ENABLED=true
+```
+
+
+## V12 — Advanced Vision + GUI Automation 2.0 MVP
+
+V12 upgrades the V9.7 GUI agent from simple observe→act steps into a safer verifyable desktop-control loop.
+
+### Core loop
+
+```text
+observe screen
+→ parse OCR/UI elements
+→ choose one semantic action
+→ send through V7 safety firewall
+→ screenshot before/after action
+→ observe again
+→ verify whether the screen changed or the goal progressed
+→ continue only if guided/auto policy allows it
+```
+
+### What changed
+
+```text
+- semantic click target matching with configurable threshold
+- verify-after-action screen observation
+- screenshot audit before/after GUI actions
+- safer pyautogui action executor implementation
+- support for open_url/open_app/click/type/press/hotkey/scroll/wait
+- no guessing coordinates when a semantic target is not visible
+```
+
+### Example
+
+```text
+User: Джарвіс, знайди музику на YouTube.
+JAV: opens a YouTube search via the GUI action layer, captures before/after screenshots, verifies the screen, then waits for the next guided step or continues in auto mode if enabled.
+```
+
+### Safety
+
+V12 still does **not** give unrestricted PC control. Every GUI action goes through the same V7 firewall, risk engine, permission levels and pending approvals. It blocks sensitive text such as passwords, tokens, payment data and risky hotkeys.
+
+### Config
+
+```env
+GUI_AUTOMATION_ENABLED=true
+GUI_AUTOMATION_AUTO_ENABLED=false
+GUI_AUTOMATION_VERIFY_AFTER_ACTION=true
+GUI_AUTOMATION_SCREENSHOT_AUDIT=true
+GUI_AUTOMATION_SEMANTIC_CLICK_THRESHOLD=35
+GUI_AUTOMATION_MAX_RETRIES_PER_STEP=2
+GUI_AUTOMATION_ALLOWED_ACTIONS=observe,done,open_url,open_app,click_xy,click_text,type_text,press,hotkey,scroll,wait
 ```

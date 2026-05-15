@@ -127,6 +127,10 @@ SETTINGS_GROUPS: Dict[str, List[SettingSpec]] = {
         SettingSpec("GUI_AUTOMATION_STEP_DELAY_SECONDS", "Delay between GUI steps", "1.0"),
         SettingSpec("GUI_AUTOMATION_REQUIRE_CONFIRMATION", "Require confirmation for risky GUI actions", "true", kind="bool"),
         SettingSpec("GUI_AUTOMATION_BLOCK_SENSITIVE", "Block passwords/payments/secrets", "true", kind="bool"),
+        SettingSpec("GUI_AUTOMATION_VERIFY_AFTER_ACTION", "Verify screen after each GUI action", "true", kind="bool"),
+        SettingSpec("GUI_AUTOMATION_SCREENSHOT_AUDIT", "Save screenshot audit before/after actions", "true", kind="bool"),
+        SettingSpec("GUI_AUTOMATION_SEMANTIC_CLICK_THRESHOLD", "Semantic click match threshold", "35"),
+        SettingSpec("GUI_AUTOMATION_MAX_RETRIES_PER_STEP", "Max retries per step", "2"),
         SettingSpec("GUI_AUTOMATION_ALLOWED_ACTIONS", "Allowed GUI action names", "observe,done,open_url,open_app,click_xy,click_text,type_text,press,hotkey,scroll,wait", kind="list"),
     ],
     "Memory / Sleep": [

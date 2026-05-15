@@ -45,14 +45,18 @@ class GuiTask:
         self.steps_done = 0
         self.awaiting_observation = False
         self.awaiting_action = False
+        self.awaiting_verification = False
         self.last_observation: Dict[str, Any] = {}
+        self.previous_observation: Dict[str, Any] = {}
+        self.last_verification: Dict[str, Any] = {}
         self.history: List[Dict[str, Any]] = []
         self.last_action: Dict[str, Any] = {}
+        self.retry_count = 0
 
 
 class GuiAgentModule(CognitiveModule):
-    MODULE_DESCRIPTION = "V9.7 general safe GUI automation agent"
-    MODULE_VERSION = "9.7.0"
+    MODULE_DESCRIPTION = "V12 general safe GUI automation agent with semantic targets and verify-after-action loop"
+    MODULE_VERSION = "12.0.0"
 
     def __init__(self) -> None:
         super().__init__(module_id="gui_agent", cost={"cpu": 0.15, "gpu": 0.0, "ram": 0.05})
@@ -66,6 +70,9 @@ class GuiAgentModule(CognitiveModule):
         }
         self.require_confirmation = True
         self.block_sensitive = True
+        self.verify_after_action = True
+        self.semantic_click_threshold = 35
+        self.max_retries_per_step = 2
         self.active_task_id: str = ""
         self.tasks: Dict[str, GuiTask] = {}
         self._last_screen: Dict[str, Any] = {}
@@ -82,6 +89,9 @@ class GuiAgentModule(CognitiveModule):
             self.allowed_actions = {str(x).strip() for x in raw if str(x).strip()} or self.allowed_actions
             self.require_confirmation = bool(getattr(cfg, "require_confirmation", True))
             self.block_sensitive = bool(getattr(cfg, "block_sensitive", True))
+            self.verify_after_action = bool(getattr(cfg, "verify_after_action", True))
+            self.semantic_click_threshold = int(getattr(cfg, "semantic_click_threshold", 35) or 35)
+            self.max_retries_per_step = int(getattr(cfg, "max_retries_per_step", 2) or 2)
         kernel.event_bus.register_consumer(
             self.module_id,
             [
@@ -95,7 +105,7 @@ class GuiAgentModule(CognitiveModule):
                 "action_result",
             ],
         )
-        logger.info("[V9.7] GUI agent initialized enabled=%s auto_enabled=%s", self.enabled, self.auto_enabled)
+        logger.info("[V12] GUI agent initialized enabled=%s auto_enabled=%s", self.enabled, self.auto_enabled)
 
     async def on_event(self, event: Event) -> None:
         if not self.enabled:
@@ -187,12 +197,61 @@ class GuiAgentModule(CognitiveModule):
             Priority.REALTIME,
         )
 
+    async def _request_verification(self, task: GuiTask) -> None:
+        task.awaiting_observation = True
+        task.awaiting_verification = True
+        task.status = "verifying"
+        if not self.kernel:
+            return
+        self.kernel.event_bus.emit(
+            Event(
+                type="screen_understand_requested",
+                data={
+                    "request_id": f"gui_verify_{task.task_id}_{task.steps_done}",
+                    "reason": "gui_agent_after_action_verify",
+                    "mode": "gui_automation_verify",
+                    "respond": False,
+                    "gui_task_id": task.task_id,
+                },
+                source_module=self.module_id,
+            ),
+            Priority.REALTIME,
+        )
+
+    async def _handle_verification_observation(self, task: GuiTask, event: Event) -> None:
+        current = dict(event.data)
+        task.last_verification = self._verify_progress(task, current)
+        task.previous_observation = dict(task.last_observation or {})
+        task.last_observation = current
+        task.history.append({"kind": "verification", "data": task.last_verification, "ts": time.time()})
+        if not current.get("ok", True):
+            task.status = "waiting_next_step"
+            await self._respond(f"GUI action executed, but after-action verification failed: {current.get('error', 'unknown error')}")
+            return
+        if task.last_verification.get("goal_complete"):
+            task.status = "done"
+            await self._respond(f"GUI task done after verification: {task.task_id}\n{task.last_verification.get('summary')}")
+            return
+        if task.mode == "auto" and task.steps_done < self.max_steps:
+            await self._request_observation(task)
+        else:
+            task.status = "waiting_next_step"
+            await self._respond(
+                f"GUI step verified for {task.task_id}. {task.last_verification.get('summary')}\n"
+                f"Say 'продовжуй GUI задачу' or use /gui-step {task.task_id} for the next safe step."
+            )
+
     async def _handle_observation(self, event: Event) -> None:
         task_id = str(event.data.get("gui_task_id") or self.active_task_id or "")
         task = self.tasks.get(task_id)
         if task is None or not task.awaiting_observation:
             return
         task.awaiting_observation = False
+        if task.awaiting_verification:
+            task.awaiting_verification = False
+            await self._handle_verification_observation(task, event)
+            return
+        task.previous_observation = dict(task.last_observation or {})
         task.last_observation = dict(event.data)
         task.history.append({"kind": "observation", "data": self._compact_observation(event.data), "ts": time.time()})
         if not event.data.get("ok", True):
@@ -219,7 +278,11 @@ class GuiAgentModule(CognitiveModule):
                 f"You can approve pending actions if shown, adjust safety level, or ask me to choose a safer step."
             )
             return
-        if task.mode == "auto" and task.steps_done < self.max_steps:
+        task.last_action_result = dict(event.data)
+        if self.verify_after_action:
+            await asyncio.sleep(max(0.1, self.step_delay))
+            await self._request_verification(task)
+        elif task.mode == "auto" and task.steps_done < self.max_steps:
             await asyncio.sleep(max(0.1, self.step_delay))
             await self._request_observation(task)
         else:
@@ -272,6 +335,7 @@ class GuiAgentModule(CognitiveModule):
             "You are JAV's GUI control cortex. Choose exactly one safe next GUI action. "
             "Return ONLY compact JSON with keys: action, reason, and action-specific fields. "
             "Allowed actions: done, observe, open_url, open_app, click_xy, click_text, type_text, press, hotkey, scroll, wait. "
+            "Prefer click_text over click_xy when a visible UI label exists. "
             "Never type passwords, payment info, private tokens, or irreversible confirmations. "
             "Prefer small reversible steps. If unsure, choose observe or done with reason."
         )
@@ -340,6 +404,7 @@ class GuiAgentModule(CognitiveModule):
             label = str(action.get("text") or action.get("label") or "").strip().lower()
             el = self._find_ui_element(task.last_observation, label)
             if not el:
+                # V12 semantic click safety: when the target label is not visible, do not guess coordinates.
                 return None
             center = el.get("center") or [0, 0]
             payload.update({"x": int(center[0]), "y": int(center[1]), "matched_text": el.get("text", label)})
@@ -385,7 +450,7 @@ class GuiAgentModule(CognitiveModule):
                 score = len(words) * 15
             if score > best_score:
                 best_score, best = score, el
-        return best if best_score >= 30 else None
+        return best if best_score >= self.semantic_click_threshold else None
 
     def _emit_action(self, action_type: str, payload: Dict[str, Any], task: GuiTask, decision: Dict[str, Any]) -> None:
         if not self.kernel:
@@ -442,6 +507,40 @@ class GuiAgentModule(CognitiveModule):
                 return None
         return None
 
+    def _verify_progress(self, task: GuiTask, current: Dict[str, Any]) -> Dict[str, Any]:
+        before = self._compact_observation(task.previous_observation or {})
+        after = self._compact_observation(current or {})
+        before_text = json.dumps(before, ensure_ascii=False).lower()
+        after_text = json.dumps(after, ensure_ascii=False).lower()
+        action = str(task.last_action.get("action", ""))
+        changed = before_text != after_text
+        summary_parts = []
+        if changed:
+            summary_parts.append("screen changed after the action")
+        else:
+            summary_parts.append("screen looks similar after the action")
+        if current.get("active_window"):
+            summary_parts.append(f"active window: {current.get('active_window')}")
+        if current.get("likely_context"):
+            summary_parts.append(f"context: {current.get('likely_context')}")
+        goal_l = task.goal.lower()
+        after_l = after_text
+        goal_complete = False
+        if action == "open_url" and any(x in after_l for x in ["youtube", "google", "search", "брауз", "browser"]):
+            summary_parts.append("browser/search context is visible")
+        if any(x in goal_l for x in ["муз", "music", "youtube", "ютуб"]) and any(x in after_l for x in ["pause", "play", "youtube", "music", "lofi", "плей"]):
+            summary_parts.append("music/video-related UI is visible")
+        if action == "done":
+            goal_complete = True
+        return {
+            "changed": changed,
+            "goal_complete": goal_complete,
+            "summary": "; ".join(summary_parts) + ".",
+            "before_screenshot": (task.previous_observation or {}).get("screenshot_path", ""),
+            "after_screenshot": current.get("screenshot_path", ""),
+            "action": task.last_action,
+        }
+
     def _get_task(self, task_id: str) -> Optional[GuiTask]:
         if task_id and task_id in self.tasks:
             return self.tasks[task_id]
@@ -459,7 +558,7 @@ class GuiAgentModule(CognitiveModule):
 
     async def _respond(self, text: str) -> None:
         if self.kernel:
-            self.kernel.event_bus.emit(Event(type="response_generated", data={"text": text, "source": "gui_agent/v9.7"}, source_module=self.module_id), Priority.COGNITIVE)
+            self.kernel.event_bus.emit(Event(type="response_generated", data={"text": text, "source": "gui_agent/v12"}, source_module=self.module_id), Priority.COGNITIVE)
 
     def to_dict(self) -> Dict[str, Any]:
         base = super().to_dict()
@@ -468,6 +567,8 @@ class GuiAgentModule(CognitiveModule):
             "auto_enabled": self.auto_enabled,
             "max_steps": self.max_steps,
             "step_delay": self.step_delay,
+            "verify_after_action": self.verify_after_action,
+            "semantic_click_threshold": self.semantic_click_threshold,
             "require_confirmation": self.require_confirmation,
             "allowed_actions": sorted(self.allowed_actions),
             "active_task_id": self.active_task_id,

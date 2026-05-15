@@ -325,6 +325,10 @@ class GuiAutomationConfig:
     step_delay_seconds: float = field(default_factory=lambda: float(os.environ.get("GUI_AUTOMATION_STEP_DELAY_SECONDS", "1.0")))
     require_confirmation: bool = field(default_factory=lambda: os.environ.get("GUI_AUTOMATION_REQUIRE_CONFIRMATION", "true").lower() == "true")
     block_sensitive: bool = field(default_factory=lambda: os.environ.get("GUI_AUTOMATION_BLOCK_SENSITIVE", "true").lower() == "true")
+    verify_after_action: bool = field(default_factory=lambda: os.environ.get("GUI_AUTOMATION_VERIFY_AFTER_ACTION", "true").lower() == "true")
+    screenshot_audit: bool = field(default_factory=lambda: os.environ.get("GUI_AUTOMATION_SCREENSHOT_AUDIT", "true").lower() == "true")
+    semantic_click_threshold: int = field(default_factory=lambda: int(os.environ.get("GUI_AUTOMATION_SEMANTIC_CLICK_THRESHOLD", "35")))
+    max_retries_per_step: int = field(default_factory=lambda: int(os.environ.get("GUI_AUTOMATION_MAX_RETRIES_PER_STEP", "2")))
     allowed_actions: List[str] = field(default_factory=lambda: [
         x.strip() for x in os.environ.get(
             "GUI_AUTOMATION_ALLOWED_ACTIONS",

@@ -37,8 +37,8 @@ class PendingAction:
 class ActionExecutorModule(CognitiveModule):
     """Executes approved V7 actions: files, commands and V9.7 safe GUI actions."""
 
-    MODULE_DESCRIPTION = "V7/V9.7 sandboxed file, command and safe GUI action executor"
-    MODULE_VERSION = "0.2.0"
+    MODULE_DESCRIPTION = "V7/V12 sandboxed file, command and safe GUI action executor with screenshot audit"
+    MODULE_VERSION = "12.0.0"
 
     def __init__(self) -> None:
         super().__init__(module_id="action_executor", cost={"cpu": 0.10, "gpu": 0.0, "ram": 0.05})
@@ -53,11 +53,16 @@ class ActionExecutorModule(CognitiveModule):
         self._pending: Dict[str, PendingAction] = {}
         self._last_result: Dict[str, Any] = {}
         self.actions_enabled = True
+        self.gui_screenshot_audit = True
+        self.gui_pause_after_action = 0.35
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
         cfg = getattr(kernel.config, "actions", None)
         self.actions_enabled = bool(getattr(cfg, "enabled", True))
+        gui_cfg = getattr(kernel.config, "gui_automation", None)
+        self.gui_screenshot_audit = bool(getattr(gui_cfg, "screenshot_audit", True))
+        self.gui_pause_after_action = float(getattr(gui_cfg, "step_delay_seconds", 1.0) or 1.0) / 3.0
         self.workspace = Path(getattr(cfg, "workspace_path", "~/jarvis_workspace") or "~/jarvis_workspace").expanduser().resolve()
         self.allow_shell = bool(getattr(cfg, "allow_shell", False))
         self.command_timeout = float(getattr(cfg, "command_timeout", 20.0))
@@ -304,6 +309,149 @@ class ActionExecutorModule(CognitiveModule):
             "stdout": proc.stdout[-6000:],
             "stderr": proc.stderr[-6000:],
         }
+
+
+    # ------------------------------------------------------------------
+    # V12 GUI actions
+    # ------------------------------------------------------------------
+    def _open_url(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        url = str(payload.get("url", "")).strip()
+        if not url:
+            return {"ok": False, "error": "open_url requires url"}
+        if not (url.startswith("http://") or url.startswith("https://")):
+            return {"ok": False, "error": "Only http/https URLs are allowed for open_url"}
+        before = self._gui_screenshot("before_open_url", payload)
+        opened = webbrowser.open(url)
+        time.sleep(max(0.1, self.gui_pause_after_action))
+        after = self._gui_screenshot("after_open_url", payload)
+        return {"ok": bool(opened), "url": url, "before_screenshot": before, "after_screenshot": after}
+
+    def _open_app(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        app = str(payload.get("app", "")).strip()
+        if not app:
+            return {"ok": False, "error": "open_app requires app"}
+        blocked = {"cmd", "powershell", "terminal", "sudo", "regedit", "format", "shutdown"}
+        if Path(app).name.lower() in blocked:
+            return {"ok": False, "error": f"Blocked sensitive app launch: {app}"}
+        before = self._gui_screenshot("before_open_app", payload)
+        try:
+            if sys.platform.startswith("win") and hasattr(os, "startfile"):
+                os.startfile(app)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(shlex.split(app), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            return {"ok": False, "error": f"Application not found: {app}"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        time.sleep(max(0.2, self.gui_pause_after_action))
+        after = self._gui_screenshot("after_open_app", payload)
+        return {"ok": True, "app": app, "before_screenshot": before, "after_screenshot": after}
+
+    def _gui_click(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        pg = self._import_pyautogui()
+        x = int(float(payload.get("x", 0)))
+        y = int(float(payload.get("y", 0)))
+        if x <= 0 or y <= 0:
+            return {"ok": False, "error": "gui_click requires positive x/y coordinates"}
+        before = self._gui_screenshot("before_click", payload)
+        pg.click(x=x, y=y)
+        time.sleep(max(0.1, self.gui_pause_after_action))
+        after = self._gui_screenshot("after_click", payload)
+        return {"ok": True, "x": x, "y": y, "matched_text": payload.get("matched_text", ""), "before_screenshot": before, "after_screenshot": after}
+
+    def _gui_type_text(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        text = str(payload.get("text", ""))
+        if not text:
+            return {"ok": False, "error": "gui_type_text requires text"}
+        if self._looks_sensitive(text):
+            return {"ok": False, "error": "Blocked typing text that looks like a password/token/secret"}
+        pg = self._import_pyautogui()
+        before = self._gui_screenshot("before_type", payload)
+        pg.write(text, interval=0.01)
+        time.sleep(max(0.1, self.gui_pause_after_action))
+        after = self._gui_screenshot("after_type", payload)
+        return {"ok": True, "chars": len(text), "before_screenshot": before, "after_screenshot": after}
+
+    def _gui_press(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        key = str(payload.get("key", "")).strip().lower()
+        if not key:
+            return {"ok": False, "error": "gui_press requires key"}
+        blocked = {"delete", "del", "f4"}
+        if key in blocked:
+            return {"ok": False, "error": f"Blocked risky key press: {key}"}
+        pg = self._import_pyautogui()
+        before = self._gui_screenshot("before_press", payload)
+        pg.press(key)
+        time.sleep(max(0.1, self.gui_pause_after_action))
+        after = self._gui_screenshot("after_press", payload)
+        return {"ok": True, "key": key, "before_screenshot": before, "after_screenshot": after}
+
+    def _gui_hotkey(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        keys = payload.get("keys", [])
+        if isinstance(keys, str):
+            keys = [x.strip().lower() for x in keys.split("+") if x.strip()]
+        keys = [str(k).strip().lower() for k in keys if str(k).strip()]
+        if not keys:
+            return {"ok": False, "error": "gui_hotkey requires keys"}
+        joined = "+".join(keys)
+        blocked = ["alt+f4", "ctrl+w", "ctrl+q", "ctrl+alt+delete", "shift+delete"]
+        if joined in blocked:
+            return {"ok": False, "error": f"Blocked risky hotkey: {joined}"}
+        pg = self._import_pyautogui()
+        before = self._gui_screenshot("before_hotkey", payload)
+        pg.hotkey(*keys)
+        time.sleep(max(0.1, self.gui_pause_after_action))
+        after = self._gui_screenshot("after_hotkey", payload)
+        return {"ok": True, "keys": keys, "before_screenshot": before, "after_screenshot": after}
+
+    def _gui_scroll(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        amount = int(float(payload.get("amount", -5)))
+        pg = self._import_pyautogui()
+        before = self._gui_screenshot("before_scroll", payload)
+        pg.scroll(amount)
+        time.sleep(max(0.1, self.gui_pause_after_action))
+        after = self._gui_screenshot("after_scroll", payload)
+        return {"ok": True, "amount": amount, "before_screenshot": before, "after_screenshot": after}
+
+    def _gui_wait(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        seconds = min(10.0, max(0.1, float(payload.get("seconds", 1.0))))
+        time.sleep(seconds)
+        after = self._gui_screenshot("after_wait", payload)
+        return {"ok": True, "seconds": seconds, "after_screenshot": after}
+
+    def _import_pyautogui(self):
+        try:
+            import pyautogui  # type: ignore
+            pyautogui.FAILSAFE = True
+            return pyautogui
+        except Exception as exc:
+            raise RuntimeError("Missing GUI automation dependency. Install: pip install pyautogui. On Linux also ensure a graphical session is available.") from exc
+
+    def _gui_screenshot(self, label: str, payload: Dict[str, Any]) -> str:
+        if not self.gui_screenshot_audit:
+            return ""
+        try:
+            pg = self._import_pyautogui()
+            base = ""
+            if self.kernel is not None:
+                base = str(getattr(getattr(self.kernel, "persistence", None), "_base", "") or "")
+            out_dir = Path(base).expanduser() / "screenshots" / "gui_actions" if base else Path.home() / ".jarvis_brain" / "screenshots" / "gui_actions"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            request_id = str(payload.get("request_id", "gui"))[:80].replace(os.sep, "_")
+            path = out_dir / f"{request_id}_{label}_{int(time.time() * 1000)}.png"
+            img = pg.screenshot()
+            img.save(path)
+            return str(path)
+        except Exception:
+            return ""
+
+    def _looks_sensitive(self, text: str) -> bool:
+        low = text.lower()
+        if any(x in low for x in ["password", "пароль", "api_key", "api key", "token", "secret", "credit card", "cvv"]):
+            return True
+        # Generic long high-entropy token-ish string.
+        compact = "".join(ch for ch in text if not ch.isspace())
+        return len(compact) > 32 and any(c.isdigit() for c in compact) and any(c.isalpha() for c in compact)
 
     # ------------------------------------------------------------------
     # Helpers

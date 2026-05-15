@@ -153,6 +153,7 @@ class DesktopApp:
         add_button(controls, "Continue task", self.task_step)
         add_button(controls, "New task help", lambda: self._prefill("розберися з "))
         add_button(controls, "GUI task help", lambda: self._prefill("знайди музику на YouTube "))
+        add_button(controls, "V12 GUI verify help", lambda: self._prefill("проаналізуй екран і зроби наступний безпечний GUI крок "))
         add_button(controls, "GUI status", self.gui_status)
         add_button(controls, "Continue GUI", self.gui_step)
         add_button(controls, "Settings Center", self.open_settings)
@@ -189,6 +190,7 @@ class DesktopApp:
             "продовжуй задачу",
             "статус задачі",
             "знайди музику на YouTube",
+            "проаналізуй екран і зроби наступний безпечний GUI крок",
             "продовжуй GUI задачу",
             "статус GUI",
         ]
