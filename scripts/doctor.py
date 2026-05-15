@@ -9,9 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+for _p in (RESOURCE_ROOT, ROOT):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
@@ -40,8 +42,8 @@ def main() -> int:
     ok_all &= check("config.py exists", (ROOT / "config.py").exists())
     ok_all &= check("README.md exists", (ROOT / "README.md").exists())
     ok_all &= check("CHANGELOG.md exists", (ROOT / "CHANGELOG.md").exists())
-    ok_all &= check("modules directory exists", (ROOT / "modules").exists())
-    ok_all &= check("interfaces directory exists", (ROOT / "interfaces").exists())
+    ok_all &= check("modules directory exists", (ROOT / "modules").exists() or (RESOURCE_ROOT / "modules").exists())
+    ok_all &= check("interfaces directory exists", (ROOT / "interfaces").exists() or (RESOURCE_ROOT / "interfaces").exists())
 
     print("\nCore imports:")
     for mod in ["config", "core.kernel", "core.llm_router", "interfaces.desktop.desktop_app", "interfaces.desktop.settings_window"]:

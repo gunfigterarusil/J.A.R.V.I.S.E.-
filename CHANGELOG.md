@@ -1,3 +1,17 @@
+# Changelog
+
+## V15.3 — Installer / Portable / Startup Fix
+
+- Added proper portable-aware build flow with `JAV.exe` and `JAV-Console.exe`.
+- Built desktop app now opens GUI by default on double-click instead of starting headless mode.
+- Added `scripts/bootstrap_dependencies.py` for source/dev dependency installation without installing LLM models.
+- Added `scripts/make_portable_release.py` for creating a movable external-drive app folder.
+- Reworked `scripts/build_desktop_app.py` to include submodules and create portable `.env`/data folders.
+- Reworked Inno Setup installer to let the user choose install directory and initialize portable data inside the app folder.
+- Fixed relative portable paths so `.env` paths like `data/brain` resolve against the application folder, not the current terminal folder.
+- Desktop UI now opens the window first and boots the kernel in the background, avoiding the “console shows two lines and appears stuck” startup problem.
+- Added better source launchers: `run_desktop.bat`, `run_desktop_debug.bat`, `run_doctor.bat`, `run_install_deps.bat`.
+
 # CHANGELOG
 
 

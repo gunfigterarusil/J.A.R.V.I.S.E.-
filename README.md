@@ -216,128 +216,144 @@ MEMORY_EPISODIC_MAX_ITEMS=100000
 
 ---
 
-## 5. Як зібрати desktop-програму
+## 5. Як зібрати нормальну desktop-програму
 
-Проєкт збирається через **PyInstaller** у portable folder app.
+JAV збирається у **movable/portable onedir app** через PyInstaller. У зібраній папці буде два виконувані файли:
 
-### 5.1 Встановити залежності збірки
+```text
+dist/JAV/
+  JAV.exe          # головна windowed-програма, без чорної консолі
+  JAV-Console.exe  # технічний helper: --doctor, --chat, --service, --init-portable
+  .env             # portable-конфіг із відносними шляхами
+  data/brain/      # памʼять, SQLite, logs
+  data/workspace/  # safe workspace
+  data/screenshots/
+```
 
-```bash
-pip install pyinstaller
+LLM/моделі **не вбудовуються**. Користувач сам ставить Ollama/моделі або вказує API у Settings Center / `.env`.
+
+### 5.1 Встановити залежності для збірки
+
+```bat
+python scripts\bootstrap_dependencies.py --all
+```
+
+Або мінімально:
+
+```bat
+python scripts\bootstrap_dependencies.py --with-build --with-gui
 ```
 
 ### 5.2 Зібрати програму
 
-```bash
-python scripts/build_desktop_app.py
+```bat
+python scripts\build_desktop_app.py
 ```
 
 Результат:
 
 ```text
-dist/JAV/
-  JAV.exe        # Windows
-  JAV            # Linux/macOS
-  .env.example
-  README.md
-  CHANGELOG.md
-  run_desktop.bat / run_desktop.sh
+dist/JAV/JAV.exe
+dist/JAV/JAV-Console.exe
+dist/JAV/run_desktop.bat
+dist/JAV/run_doctor.bat
+dist/JAV/.env
+dist/JAV/data/
 ```
 
-### 5.3 Зробити portable EXE-папку на переносному диску
+### 5.3 Запуск зібраної програми
 
-1. Збери програму:
-
-```bash
-python scripts/build_desktop_app.py
-```
-
-2. Скопіюй `dist/JAV/` на переносний диск, наприклад:
+Для звичайного запуску:
 
 ```text
-E:/JAV/
+dist/JAV/JAV.exe
 ```
 
-3. У папці `E:/JAV/` створи `.env` або скопіюй `.env.example` у `.env`.
+або:
 
-4. В `.env` вистав:
+```bat
+dist\JAV\run_desktop.bat
+```
+
+Для діагностики:
+
+```bat
+dist\JAV\run_doctor.bat
+```
+
+### 5.4 Важливо про переміщення
+
+У зібраній версії `.env` використовує відносні шляхи:
 
 ```env
 JAV_PORTABLE=true
 JARVIS_DATA_DIR=data/brain
 ACTION_WORKSPACE_PATH=data/workspace
 SCREENSHOT_DIR=data/screenshots
-RUNTIME_LOG_DIR=data/brain/logs
-RUNTIME_HEARTBEAT_FILE=data/brain/runtime_heartbeat.json
-RUNTIME_PID_FILE=data/brain/runtime.pid
 ```
 
-5. Створи папки:
+Тому всю папку `dist/JAV/` можна перенести, наприклад, у:
 
 ```text
-E:/JAV/data/brain
-E:/JAV/data/workspace
-E:/JAV/data/screenshots
+E:/JAV/
+D:/AI/JAV/
+PortableSSD:/JAV/
 ```
 
-6. Запускай:
-
-```text
-E:/JAV/JAV.exe
-```
+і вона має працювати далі, бо памʼять і workspace лежать поруч із програмою.
 
 ---
 
 ## 6. Як зробити Windows installer
 
-Є два варіанти: простий portable zip або справжній installer.
+Installer робиться через **Inno Setup** і дозволяє вибрати папку встановлення. Можна встановити одразу на переносний HDD/SSD, наприклад `E:\JAV`.
 
-### Варіант A — portable ZIP
-
-Після збірки:
-
-```bash
-python scripts/build_desktop_app.py
-```
-
-Запакуй папку:
-
-```text
-dist/JAV/
-```
-
-у ZIP. Це найпростіший варіант для переносного HDD/SSD.
-
-### Варіант B — installer через Inno Setup
-
-1. Встанови **Inno Setup** на Windows.
-2. Збери програму:
+### 6.1 Зібрати EXE-папку
 
 ```bat
+python scripts\bootstrap_dependencies.py --all
 python scripts\build_desktop_app.py
 ```
 
-3. Збери installer:
+### 6.2 Зібрати installer
+
+Встанови Inno Setup, потім:
 
 ```bat
 python scripts\build_windows_installer.py
 ```
 
-або відкрий файл:
+Результат:
 
 ```text
-installer/JAV_Setup.iss
+installer_output/JAV_Setup_PortableAware.exe
 ```
 
-в Inno Setup Compiler і натисни **Compile**.
+### 6.3 Що робить installer
 
-Результат буде в:
+Installer:
 
 ```text
-installer_output/JAV_Setup.exe
+- дозволяє вибрати папку встановлення;
+- копіює всю програму в цю папку;
+- створює data/brain, data/workspace, data/screenshots;
+- створює portable .env з відносними шляхами;
+- створює ярлики JAV, JAV Doctor, JAV Chat;
+- не ставить LLM-моделі й не прописує API-ключі;
+- Python-залежності вже вбудовані у зібраний PyInstaller app.
 ```
 
-Installer встановлює звичайну програму. Для повністю переносного режиму краще використовувати portable ZIP або `scripts/install_portable.py`.
+Тобто після встановлення папку програми можна перенести на інший диск, і вона збереже працездатність, якщо запускати `JAV.exe` з цієї ж папки.
+
+### 6.4 Якщо запускаєш із вихідного коду, а не EXE
+
+Для source/dev запуску залежності ставляться так:
+
+```bat
+python scripts\bootstrap_dependencies.py --all
+```
+
+Це поставить Python-пакети, але **не встановить LLM**. Ollama/API/моделі налаштовуються окремо.
 
 ---
 

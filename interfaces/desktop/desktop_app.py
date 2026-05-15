@@ -72,6 +72,10 @@ class DesktopApp:
         self._last_notification: Dict[str, float] = {}
         self.notifier = DesktopNotifier(enabled=os.environ.get("DESKTOP_NOTIFICATIONS_ENABLED", "true").lower() == "true")
         self.tray: Optional[AssistantTray] = None
+        self.kernel: Optional[Kernel] = None
+        self.api: Optional[KernelAPI] = None
+        self.kernel_ready = False
+        self._kernel_boot_queue: "queue.Queue[tuple[str, object]]" = queue.Queue()
 
         try:
             self.root = tk.Tk()
@@ -87,26 +91,60 @@ class DesktopApp:
         self.root.minsize(980, 660)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
-        # Build the cognitive kernel only after the window exists. This makes desktop startup
-        # failures visible and prevents a silent/crashing launch when no GUI display is available.
-        try:
-            self.kernel: Kernel = build_kernel(self.cfg)
-            self.api = KernelAPI(self.kernel)
-            self._patch_event_tap()
-        except Exception as exc:
-            try:
-                messagebox.showerror("JAV startup error", f"Kernel failed to start:\n{exc}")
-            finally:
-                self.root.destroy()
-            raise
-
+        # Build the window first, then boot the cognitive kernel in a background thread.
+        # This prevents the common "black console with two startup lines" feeling when
+        # module loading, optional network checks, or model health checks take a while.
         self._build_ui()
         self._start_optional_tray()
         if os.environ.get("DESKTOP_START_MINIMIZED", "false").lower() == "true":
             self.root.withdraw()
-        self.api.start_in_background()
-        self._append("system", "JAV Assistant Shell V15 started. Use natural language, voice process, command palette, or Settings Center.")
+        self._append("system", "JAV Assistant Shell is opening. Booting cognitive kernel in the background…")
+        self.status_label.configure(text="booting kernel…")
+        self._start_kernel_boot()
         self._tick_ui()
+
+
+    # ------------------------------------------------------------------
+    # Kernel boot
+    # ------------------------------------------------------------------
+    def _start_kernel_boot(self) -> None:
+        def worker() -> None:
+            try:
+                kernel = build_kernel(self.cfg)
+                self._kernel_boot_queue.put(("ok", kernel))
+            except Exception as exc:
+                self._kernel_boot_queue.put(("error", exc))
+        threading.Thread(target=worker, daemon=True, name="desktop-kernel-boot").start()
+        self.root.after(100, self._poll_kernel_boot)
+
+    def _poll_kernel_boot(self) -> None:
+        try:
+            status, payload = self._kernel_boot_queue.get_nowait()
+        except queue.Empty:
+            self.root.after(100, self._poll_kernel_boot)
+            return
+        if status == "error":
+            exc = payload
+            self.status_label.configure(text="kernel failed")
+            self._append("system", f"Kernel failed to start: {exc}")
+            try:
+                messagebox.showerror("JAV startup error", f"Kernel failed to start:\n{exc}")
+            except Exception:
+                pass
+            return
+        self.kernel = payload  # type: ignore[assignment]
+        self.api = KernelAPI(self.kernel)
+        self._patch_event_tap()
+        self.api.start_in_background()
+        self.kernel_ready = True
+        self.status_label.configure(text="running")
+        self._append("system", "JAV Assistant Shell V15.2 started. Use natural language, voice process, command palette, or Settings Center.")
+
+    def _ensure_ready(self) -> bool:
+        if self.kernel_ready and self.kernel is not None and self.api is not None:
+            return True
+        self._append("system", "Kernel is still starting. Try again in a moment, or run python main.py --doctor if it never becomes ready.")
+        return False
 
     # ------------------------------------------------------------------
     # UI build
@@ -421,6 +459,8 @@ class DesktopApp:
                 self._notify("JAV noticed something", text)
 
     def _patch_event_tap(self) -> None:
+        if self.kernel is None:
+            return
         original_emit = self.kernel.event_bus.emit
 
         def tapped_emit(event: CognitiveEvent, priority: Priority) -> None:
@@ -452,9 +492,14 @@ class DesktopApp:
             except Exception:
                 pass
 
-        self.kernel.event_bus.emit = tapped_emit  # type: ignore[method-assign]
+        self.kernel.event_bus.emit = tapped_emit  # type: ignore[union-attr, method-assign]
 
     def _update_cards(self) -> None:
+        if not self.kernel_ready or self.kernel is None or self.api is None:
+            self.status_label.configure(text="booting kernel…")
+            for key, card in self.cards.items():
+                card.set("starting", "kernel booting")
+            return
         state = self.api.get_state()
         running = state.get("running")
         safety = state.get("core_state", {}).get("safety_level", "?")
@@ -462,6 +507,9 @@ class DesktopApp:
         self.status_label.configure(text=f"running={running} | modules={mods} | safety=L{safety}")
         self.cards["kernel"].set(f"{'ON' if running else 'OFF'} / {mods} mods", f"Safety L{safety}")
 
+        if self.kernel is None:
+            self._append("system", "Kernel is not ready yet.")
+            return
         router = getattr(self.kernel, "llm_router", None)
         if router is not None and hasattr(router, "status"):
             try:
@@ -498,6 +546,9 @@ class DesktopApp:
     # Event and command routing
     # ------------------------------------------------------------------
     def emit(self, type_: str, data: Dict[str, Any], priority: Priority = Priority.COGNITIVE) -> None:
+        if not self._ensure_ready():
+            return
+        assert self.api is not None
         self.api.emit_event(type_, data, priority)
 
     def send_message(self) -> None:
@@ -603,6 +654,9 @@ class DesktopApp:
         self.emit("gui_task_step_requested", {"respond": True}, Priority.COGNITIVE)
 
     def model_status(self) -> None:
+        if not self._ensure_ready():
+            return
+        assert self.kernel is not None
         router = getattr(self.kernel, "llm_router", None)
         if router is None or not hasattr(router, "status"):
             self._append("system", "Model router is not available.")
@@ -701,8 +755,13 @@ class DesktopApp:
                 self._append("system", f"Could not stop voice process: {exc}")
             return
         try:
-            root = Path(__file__).resolve().parents[2]
-            self.voice_process = subprocess.Popen([sys.executable, str(root / "main.py"), "--voice"], cwd=str(root))
+            if getattr(sys, "frozen", False):
+                root = Path(sys.executable).resolve().parent
+                cmd = [sys.executable, "--voice"]
+            else:
+                root = Path(__file__).resolve().parents[2]
+                cmd = [sys.executable, str(root / "main.py"), "--voice"]
+            self.voice_process = subprocess.Popen(cmd, cwd=str(root))
             self._append("system", f"Voice process started pid={self.voice_process.pid}. It runs as a separate process.")
         except Exception as exc:
             self._append("system", f"Could not start voice process: {exc}")
@@ -712,6 +771,9 @@ class DesktopApp:
 
     def _settings_saved(self, updates: Dict[str, str]) -> None:
         try:
+            if self.kernel is None:
+                self._append("system", "Settings saved. Kernel is not ready yet; restart JAV or wait for startup to apply live settings.")
+                return
             actions = getattr(self.kernel.config, "actions", None)
             if actions is not None:
                 if "ACTION_WORKSPACE_PATH" in updates:
@@ -726,6 +788,9 @@ class DesktopApp:
 
     def set_safety(self, level: int) -> None:
         try:
+            if not self._ensure_ready():
+                return
+            assert self.kernel is not None
             self.kernel.permission_manager.set_level(PermissionLevel(level))
             self.kernel.core_state.safety_level = level
             self._append("system", f"Safety level set to L{level}.")
@@ -742,7 +807,8 @@ class DesktopApp:
             if self.tray:
                 self.tray.stop()
             self._append("system", "Shutting down...")
-            self.api.shutdown()
+            if self.api is not None:
+                self.api.shutdown()
         finally:
             try:
                 self.root.destroy()

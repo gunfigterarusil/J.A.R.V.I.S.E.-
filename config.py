@@ -15,19 +15,42 @@ Usage::
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict
 
+# Runtime path model:
+# - RESOURCE_ROOT: where bundled/source Python resources live. In a PyInstaller build
+#   this is the temporary/internal resource directory; in source mode it is this folder.
+# - APP_ROOT: where the user placed the application. Portable data and .env live here,
+#   so the whole folder can be moved to another drive and keep working.
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+APP_ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+PROJECT_ROOT = RESOURCE_ROOT
+
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Prefer .env next to the app/exe. Fall back to normal discovery in source/dev mode.
+    app_env = APP_ROOT / ".env"
+    if app_env.exists():
+        load_dotenv(app_env, override=False)
+    else:
+        load_dotenv(override=False)
 except ImportError:
     # python-dotenv is optional at runtime; environment variables still work without it.
     pass
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+def _app_path(value: str) -> str:
+    """Resolve relative portable paths against the movable application folder."""
+    value = (value or "").strip()
+    if not value:
+        return value
+    p = Path(value).expanduser()
+    if p.is_absolute():
+        return str(p)
+    return str((APP_ROOT / p).resolve())
 
 
 def _env_bool(name: str, default: str = "false") -> bool:
@@ -42,27 +65,27 @@ def _default_data_dir() -> str:
         or ""
     ).strip()
     if explicit:
-        return explicit
+        return _app_path(explicit)
     if _env_bool("JAV_PORTABLE", "false"):
-        return str(PROJECT_ROOT / "data" / "brain")
+        return _app_path("data/brain")
     return "~/.jarvis_brain"
 
 
 def _default_workspace_dir() -> str:
     explicit = os.environ.get("ACTION_WORKSPACE_PATH", "").strip()
     if explicit:
-        return explicit
+        return _app_path(explicit)
     if _env_bool("JAV_PORTABLE", "false"):
-        return str(PROJECT_ROOT / "data" / "workspace")
+        return _app_path("data/workspace")
     return "~/jarvis_workspace"
 
 
 def _default_screenshot_dir() -> str:
     explicit = os.environ.get("SCREENSHOT_DIR", "").strip()
     if explicit:
-        return explicit
+        return _app_path(explicit)
     if _env_bool("JAV_PORTABLE", "false"):
-        return str(PROJECT_ROOT / "data" / "screenshots")
+        return _app_path("data/screenshots")
     return ""
 
 
@@ -88,7 +111,7 @@ class LoggingConfig:
 class ModuleDefaults:
     """Paths and default module settings."""
     module_paths: List[str] = field(default_factory=lambda: [
-        str(Path(__file__).parent / "modules"),
+        str(RESOURCE_ROOT / "modules"),
     ])
     default_modules: List[str] = field(default_factory=list)
 
@@ -623,11 +646,11 @@ class KernelConfig:
     # ------------------------------------------------------------------
     module_auto_discover: bool = True
     module_tier_paths: List[str] = field(default_factory=lambda: [
-        str(Path(__file__).parent / "modules" / "tier1_essential"),
-        str(Path(__file__).parent / "modules" / "tier2_perception"),
-        str(Path(__file__).parent / "modules" / "tier3_reasoning"),
-        str(Path(__file__).parent / "modules" / "tier4_actions"),
-        str(Path(__file__).parent / "modules" / "tier5_evolution"),
+        str(RESOURCE_ROOT / "modules" / "tier1_essential"),
+        str(RESOURCE_ROOT / "modules" / "tier2_perception"),
+        str(RESOURCE_ROOT / "modules" / "tier3_reasoning"),
+        str(RESOURCE_ROOT / "modules" / "tier4_actions"),
+        str(RESOURCE_ROOT / "modules" / "tier5_evolution"),
     ])
 
     # ------------------------------------------------------------------

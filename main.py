@@ -25,10 +25,15 @@ import time
 import webbrowser
 from pathlib import Path
 
-# Ensure project root is importable
-_ROOT = Path(__file__).resolve().parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+# Ensure source/bundled resources and the movable app folder are importable.
+# In PyInstaller onedir builds, Python resources live in sys._MEIPASS/_internal,
+# while .env/data should live beside the executable so the app can be moved.
+_RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+_APP_ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+_ROOT = _APP_ROOT
+for _path in (_RESOURCE_ROOT, _APP_ROOT):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 from config import KernelConfig
 from core.kernel import Kernel, KernelAPI
@@ -837,6 +842,11 @@ def main() -> None:
         sys.exit(doctor_main())
 
     selected_modes = sum(1 for enabled in (args.web, args.voice, args.chat, args.desktop, args.service) if enabled)
+    # A built desktop app should open the GUI on double-click. Source/dev mode
+    # keeps the historical headless default for terminal users.
+    if selected_modes == 0 and getattr(sys, "frozen", False):
+        args.desktop = True
+        selected_modes = 1
     if selected_modes > 1:
         logger.error("--web, --voice, --chat, --desktop and --service are separate modes for now. Start one at a time.")
         sys.exit(2)

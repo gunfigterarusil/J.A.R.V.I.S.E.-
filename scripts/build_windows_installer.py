@@ -1,19 +1,19 @@
-"""Build Windows installer with Inno Setup.
+"""Build Windows installer using Inno Setup.
 
-Requirements:
-    1. Run on Windows.
-    2. Install Inno Setup.
-    3. Build the app first: python scripts/build_desktop_app.py
-
-Usage:
+Usage on Windows:
+    python scripts/bootstrap_dependencies.py --with-build --with-gui --with-screen --with-voice
+    python scripts/build_desktop_app.py
     python scripts/build_windows_installer.py
+
+Requires Inno Setup Compiler (ISCC.exe) in PATH or set INNO_SETUP_COMPILER.
+The installer allows choosing the installation folder and initializes JAV in
+portable/movable mode, storing data under <install folder>/data.
 """
 from __future__ import annotations
 
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,38 +21,16 @@ ISS = ROOT / "installer" / "JAV_Setup.iss"
 DIST = ROOT / "dist" / "JAV"
 
 
-def find_iscc() -> str | None:
-    direct = shutil.which("ISCC.exe") or shutil.which("iscc")
-    if direct:
-        return direct
-    candidates = [
-        Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Inno Setup 6" / "ISCC.exe",
-        Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Inno Setup 6" / "ISCC.exe",
-    ]
-    for path in candidates:
-        if path.exists():
-            return str(path)
-    return None
-
-
-def main() -> None:
+def main() -> int:
     if not DIST.exists():
         raise SystemExit("dist/JAV not found. Run: python scripts/build_desktop_app.py")
-    if not ISS.exists():
-        raise SystemExit(f"Installer script not found: {ISS}")
-    iscc = find_iscc()
+    iscc = os.environ.get("INNO_SETUP_COMPILER") or shutil.which("ISCC.exe") or shutil.which("iscc")
     if not iscc:
-        print("Inno Setup compiler was not found.")
-        print("Install Inno Setup, then either run this script again or open:")
-        print(f"  {ISS}")
-        print("and press Compile.")
-        raise SystemExit(1)
-    cmd = [iscc, str(ISS)]
-    print("Building installer:")
-    print(" ".join(cmd))
-    subprocess.check_call(cmd, cwd=str(ROOT))
-    print("Done. See installer_output/JAV_Setup.exe")
+        raise SystemExit("Inno Setup compiler not found. Install Inno Setup and add ISCC.exe to PATH, or set INNO_SETUP_COMPILER.")
+    subprocess.check_call([iscc, str(ISS)], cwd=str(ROOT))
+    print("Installer created in installer_output/")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
