@@ -1,247 +1,24 @@
-# JAV — Restored Full Jarvis Assistant Build
-
-This build restores the full V15-era feature set: chat, desktop shell, portable paths, installer scripts, doctor, voice stack hooks, screen/GUI understanding, safe actions, repair agent, web learning, task chains, model router, system monitor, proactive companion, skill learning and Safety Constitution.
-
-Quick checks:
-
-```bash
-python main.py --doctor
-python main.py --chat
-python main.py --init-portable
-python main.py --desktop
-```
-
-If Ollama or cloud API is not configured, JAV will use NullProvider and remain usable for diagnostics/settings/actions that do not require LLM reasoning.
-
----
-
 # JAV — Jarvis-like AI Companion
 
-**JAV** — це локальний Jarvis-like AI assistant: голос, чат, desktop UI, довготривала памʼять, web learning, OCR/vision, безпечні дії з ПК, GUI automation, repair-agent, task orchestrator, system monitor і modular model router.
+**JAV** — це локальний AI-асистент у стилі Jarvis: голос, чат, desktop UI, памʼять, ambient screen perception, web learning, task chains, code repair, safe actions, model router і proactive companion.
 
-Проєкт створений як **portable-first**: його можна тримати повністю на переносному HDD/SSD і запускати на різних ПК, зберігаючи памʼять, workspace, логи й налаштування поруч із програмою.
+Цей README починається з практичного: **як встановити, запустити, зібрати EXE, зробити portable-версію та налаштувати моделі**. Архітектура й roadmap — нижче.
 
 ---
 
-## V18 Modern Assistant Shell
+## 0. Що обрати: source, portable чи installer
 
-The desktop mode now opens a cleaner assistant cockpit:
+| Варіант | Коли використовувати | Що запускати |
+|---|---|---|
+| **Source/dev запуск** | Ти розробляєш або тестуєш код | `python main.py --desktop` |
+| **Portable-папка** | Хочеш носити JAV на SSD/HDD і переносити між ПК | `run_desktop.bat` у папці JAV |
+| **Windows installer** | Хочеш звичайну установку з вибором папки | `installer_output/JAV_Setup_PortableAware.exe` |
 
-```bash
-python main.py --desktop
-```
-
-Highlights:
-
-- premium dark dashboard with live status cards;
-- header HUD chips for Kernel, Voice, Ambient perception and Models;
-- quick scenario buttons for diagnosis, screen analysis, model status, repair and web research;
-- improved chat typography with timestamps;
-- dedicated tabs for Home, Commands, Tasks, Approvals, Memory, Models, Events, Doctor, Voice and Logs;
-- ambient/privacy and emotional-voice status commands: `/ambient-status`, `/emotion-voice-status`.
-
-The UI still uses built-in Tkinter/ttk, so portable builds stay lightweight and do not require PySide/Electron.
-
-
-## Швидка діагностика, якщо програма не запускається
-
-Перед тим як шукати проблему вручну, запусти:
-
-```bash
-python main.py --doctor
-```
-
-Або напряму:
-
-```bash
-python scripts/doctor.py
-```
-
-Doctor перевіряє:
-
-- імпорти ядра;
-- наявність `README.md`, `CHANGELOG.md`, `modules`, `interfaces`;
-- desktop/Tkinter;
-- optional залежності для голосу, OCR, GUI automation;
-- зовнішні утиліти `tesseract`, `piper`, `ollama`;
-- `python main.py --help`;
-- короткий chat smoke-test.
-
-Якщо desktop не стартує, `run_desktop.bat` / `run_desktop.sh` автоматично запустить doctor. Crash-log desktop-режиму зберігається тут:
-
-```text
-data/brain/logs/desktop_crash.log
-```
-
-або, якщо portable mode не ввімкнений:
-
-```text
-~/.jarvis_brain/logs/desktop_crash.log
-```
-
-Нормально, якщо doctor показує `WARN` для optional/external речей, які ти ще не ставив, наприклад `Piper`, `Ollama`, `sounddevice`, `faster-whisper`, `mss` або `pyautogui`. Це ламає тільки відповідну функцію, а не все ядро. `FAIL` тепер означає саме критичну проблему required-компонента.
-
-
-
-## First Launch / Setup Wizard
-
-For a fresh install or portable copy, start the setup wizard:
-
-```bash
-python main.py --setup
-```
-
-In a built Windows folder use:
-
-```bat
-run_setup.bat
-```
-
-The wizard lets you choose:
-
-- portable or installed memory mode;
-- memory/data folder;
-- workspace folder;
-- model profile;
-- dependency check;
-- optional voice test.
-
-To show the wizard again:
-
-```bash
-python main.py --reset-setup
-python main.py --setup
-```
-
-In a portable build, JAV stores setup completion both beside the app and inside `data/brain`, so moving the whole folder to another drive should keep the setup state and relative paths working.
-
-## Voice setup / перевірка голосу
-
-Перед запуском голосового режиму можна перевірити залежності без старту всього ядра:
-
-```bash
-python main.py --voice-doctor
-python main.py --voice-list-mics
-python main.py --voice-test-pyttsx3 "JAV voice test"
-python main.py --voice-test-piper "JAV voice test"
-python main.py --voice-ptt
-```
-
-У чаті доступні команди:
-
-```text
-/voice
-/voice-mics
-/voice-test-pyttsx3
-/voice-test-piper
-/mute
-/unmute
-/stop-speaking
-```
-
-У desktop UI є вкладка **Voice**, де можна:
-
-- подивитись voice setup report;
-- перевірити мікрофони;
-- протестувати pyttsx3 fallback;
-- протестувати Piper;
-- скопіювати команду встановлення voice-залежностей;
-- запустити/зупинити continuous voice process;
-- запустити/зупинити push-to-talk voice process.
-
-Python-залежності для голосу:
-
-```bash
-python scripts/bootstrap_dependencies.py --with-voice
-```
-
-Piper CLI і `.onnx` voice model встановлюються окремо. Якщо Piper не налаштований, JAV може використовувати `pyttsx3` як fallback.
-
-V17 Voice Companion режим додає:
-
-- `VOICE_INPUT_MODE=continuous|push_to_talk`;
-- `python main.py --voice-ptt` для безпечного push-to-talk запуску;
-- mute/unmute/stop-speaking через чат і голосові фрази;
-- статуси `idle/listening/thinking/speaking/muted/error`;
-- `runtime_voice_status.json` у папці памʼяті для відображення стану голосу.
-
-
-
-## Сучасний інтерфейс програми
-
-У цій збірці desktop shell оновлено під щоденне використання:
-
-- вікно відкривається одразу, ядро стартує у фоні;
-- головний екран має зрозумілий блок **Start here**;
-- основні дії винесені в кнопки: діагностика, моделі, памʼять, екран, задачі;
-- чат приймає звичайні фрази, не тільки slash-команди;
-- є вкладки **Home / Commands / Tasks / Approvals / Memory / Models / Doctor / Logs**;
-- risky actions підтверджуються через **Approvals**;
-- помилки запуску видно через **Doctor** і **Logs**.
-
-Найпростіший старт:
-
-```bat
-run_desktop.bat
-```
-
-Або з коду:
-
-```bash
-python main.py --desktop
-```
-
-### Workspace / sandbox
-
-JAV спеціально не працює з усім диском напряму. Безпечні файлові дії (`/ls`, `/read`, `/write`, `/repair`) працюють тільки в workspace. Перевірити його можна командою:
-
-```bash
-/workspace
-```
-
-У desktop UI відкрий **Home → Workspace**, де можна:
-
-- відкрити поточний workspace;
-- змінити workspace;
-- імпортувати папку проєкту в workspace.
-
-Це зроблено для безпеки: Jarvis не має випадково змінювати файли поза дозволеною папкою.
-
-### Memory Browser
-
-У вкладці **Memory** тепер є базовий браузер SQLite-памʼяті: можна переглядати останні записи, шукати по тексту й дивитись payload. Для пошуку з чату також працює:
-
-```bash
-/recall <тема>
-```
-
-Перший запуск відкриє setup wizard, якщо `.jav_setup_complete` ще не створено. Там можна вибрати portable/installed режим, папку памʼяті, workspace і профіль моделей.
-
-## 1. Що він уміє зараз
-
-| Напрям | Статус |
-|---|---|
-| Kernel + 24 модулі | ✅ |
-| Desktop app | ✅ |
-| Chat mode | ✅ |
-| Voice STT/TTS | ✅ MVP |
-| Piper TTS + pyttsx3 fallback | ✅ |
-| Screen OCR + GUI understanding | ✅ MVP |
-| Safe GUI automation | ✅ MVP |
-| Long-term SQLite/vector memory | ✅ |
-| Web learning/search | ✅ MVP |
-| Code/project repair agent | ✅ MVP |
-| Autonomous task chains | ✅ MVP |
-| Skill learning + knowledge graph | ✅ MVP |
-| System monitor + proactive companion | ✅ MVP |
-| Runtime service + watchdog | ✅ MVP |
-| Portable mode | ✅ |
-| Modular model/API router | ✅ |
-| Safety constitution / ethical layer | ✅ |
+**Рекомендовано для твоєї ідеї:** portable-папка на зовнішньому SSD/HDD, де поруч лежать програма, памʼять, workspace, логи й `.env`.
 
 ---
 
-## 2. Швидкий запуск з вихідного коду
+## 1. Швидкий старт з вихідного коду
 
 ### Windows
 
@@ -249,7 +26,17 @@ JAV спеціально не працює з усім диском напрям
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+python main.py --doctor
+python main.py --setup
 python main.py --desktop
+```
+
+Або через готові bat-файли:
+
+```bat
+run_doctor.bat
+run_setup.bat
+run_desktop.bat
 ```
 
 ### Linux
@@ -258,189 +45,217 @@ python main.py --desktop
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+python main.py --doctor
+python main.py --setup
 python main.py --desktop
-```
-
-### Основні режими
-
-```bash
-python main.py              # headless kernel
-python main.py --chat       # термінальний чат
-python main.py --voice      # голосовий режим continuous
-python main.py --voice-ptt  # push-to-talk голосовий режим
-python main.py --desktop    # desktop app
-python main.py --service    # фоновий service mode
-python scripts/watchdog.py  # watchdog із restart-on-crash
 ```
 
 ---
 
-## 3. Portable mode на переносному HDD/SSD
+## 2. Перший запуск / Setup Wizard
 
-Це рекомендований варіант для твоєї ідеї: **вся програма + памʼять + workspace + логи лежать на переносному диску**.
+Після першого запуску бажано пройти майстер налаштування:
 
-### Варіант A — portable із поточного коду
+```bash
+python main.py --setup
+```
 
-Приклад для Windows, якщо диск має букву `E:`:
+На Windows:
+
+```bat
+run_setup.bat
+```
+
+Майстер дозволяє вибрати:
+
+- режим **Portable** або **Installed**;
+- папку памʼяті `data/brain`;
+- workspace для безпечних дій `data/workspace`;
+- папку screenshots `data/screenshots`;
+- базовий профіль моделей;
+- залежності, які варто встановити.
+
+Щоб пройти setup заново:
+
+```bash
+python main.py --reset-setup
+python main.py --setup
+```
+
+---
+
+## 3. Діагностика, якщо щось не працює
+
+Перша команда при будь-якій проблемі:
+
+```bash
+python main.py --doctor
+```
+
+Додатково:
+
+```bash
+python main.py --model-doctor
+python main.py --voice-doctor
+```
+
+На Windows:
+
+```bat
+run_doctor.bat
+run_model_doctor.bat
+run_voice_doctor.bat
+```
+
+Doctor розділяє проблеми:
+
+- **FAIL** — критична проблема, яку треба виправити;
+- **WARN** — optional-залежність відсутня, але ядро може працювати;
+- **OK** — компонент працює.
+
+Нормально, якщо `doctor` показує `WARN` для `Ollama`, `Piper`, `sounddevice`, `faster-whisper`, `mss`, `pyautogui`, якщо ці функції ще не налаштовані.
+
+Crash logs шукай тут:
+
+```text
+data/brain/logs/
+```
+
+або без portable mode:
+
+```text
+~/.jarvis_brain/logs/
+```
+
+---
+
+## 4. Основні режими запуску
+
+```bash
+python main.py                 # headless kernel
+python main.py --chat          # термінальний чат
+python main.py --desktop       # desktop UI
+python main.py --voice         # continuous voice mode
+python main.py --voice-ptt     # push-to-talk voice mode
+python main.py --service       # service/headless mode
+python scripts/watchdog.py     # watchdog із restart-on-crash
+```
+
+У чаті корисні команди:
+
+```text
+/help
+/status
+/modules
+/models
+/model-test fast
+/voice
+/ambient-status
+/emotion-voice-status
+/workspace
+/memory
+/recall <тема>
+/system
+/proactive
+```
+
+---
+
+## 5. Portable mode на зовнішньому SSD/HDD
+
+Portable mode означає, що вся програма й дані лежать поруч:
+
+```text
+JAV/
+  JAV.exe або main.py
+  .env
+  data/
+    brain/        # памʼять, SQLite, vector, logs, runtime state
+    workspace/    # безпечна папка для дій Jarvis
+    screenshots/  # OCR / GUI screenshots
+```
+
+### Створити portable-копію з коду
+
+Windows:
 
 ```bat
 python scripts\install_portable.py E:\JAV
 ```
 
-Приклад для Linux:
+Linux:
 
 ```bash
 python3 scripts/install_portable.py /media/$USER/PortableDrive/JAV
 ```
 
-Скрипт створить:
-
-```text
-JAV/
-  main.py
-  config.py
-  core/
-  modules/
-  interfaces/
-  scripts/
-  data/
-    brain/        # памʼять, SQLite, vector index, logs, runtime state
-    workspace/    # безпечна папка для дій Jarvis
-    screenshots/  # OCR/GUI screenshots
-  .env
-  run_desktop_portable.bat
-  run_desktop_portable.sh
-```
-
-Запуск на Windows:
-
-```bat
-E:\JAV\run_desktop_portable.bat
-```
-
-Запуск на Linux:
-
-```bash
-cd /media/$USER/PortableDrive/JAV
-./run_desktop_portable.sh
-```
-
-`.env` у portable mode використовує **відносні шляхи**, тому диск може змінити букву/точку монтування.
-
-### Варіант B — portable ініціалізація у вже існуючій папці
+### Ініціалізувати portable mode у поточній папці
 
 ```bash
 python main.py --init-portable
 ```
 
-або в конкретну папку:
+Або в конкретну папку:
 
 ```bash
 python main.py --init-portable E:/JAV
 ```
 
----
-
-## 4. Де зберігається памʼять
-
-За замовчуванням:
-
-```text
-~/.jarvis_brain/
-```
-
-У portable mode:
-
-```text
-data/brain/
-```
-
-Головні файли:
-
-```text
-data/brain/longterm_memory.sqlite3
- data/brain/skills_knowledge_v14.json
- data/brain/self_model_v5.json
- data/brain/world_model_v5.json
- data/brain/dream_v6_state.json
- data/brain/runtime_health.json
- data/brain/logs/
-```
-
-Ключові налаштування `.env`:
+У portable `.env` використовуються відносні шляхи:
 
 ```env
 JAV_PORTABLE=true
 JARVIS_DATA_DIR=data/brain
 ACTION_WORKSPACE_PATH=data/workspace
 SCREENSHOT_DIR=data/screenshots
-MEMORY_SQLITE_ENABLED=true
-MEMORY_VECTOR_ENABLED=true
-MEMORY_EPISODIC_RETENTION_DAYS=3650
-MEMORY_EPISODIC_MAX_ITEMS=100000
 ```
 
-Перевірити стан памʼяті:
-
-```text
-/memory
-/storage
-/recall <тема>
-```
+Тому папку `JAV/` можна переносити між дисками, якщо запускати програму з цієї папки.
 
 ---
 
-## 5. Як зібрати нормальну desktop-програму
+## 6. Як зібрати desktop-програму в EXE
 
-JAV збирається у **movable/portable onedir app** через PyInstaller. У зібраній папці буде два виконувані файли:
+JAV збирається через PyInstaller у **onedir-папку**:
 
 ```text
 dist/JAV/
-  JAV.exe          # головна windowed-програма, без чорної консолі
-  JAV-Console.exe  # технічний helper: --doctor, --chat, --service, --init-portable
-  .env             # portable-конфіг із відносними шляхами
-  data/brain/      # памʼять, SQLite, logs
-  data/workspace/  # safe workspace
-  data/screenshots/
+  JAV.exe           # головна програма без чорної консолі
+  JAV-Console.exe   # console helper для doctor/chat/service
+  .env
+  data/
+  run_desktop.bat
+  run_doctor.bat
 ```
 
-LLM/моделі **не вбудовуються**. Користувач сам ставить Ollama/моделі або вказує API у Settings Center / `.env`.
-
-### 5.1 Встановити залежності для збірки
+### 6.1 Встановити build-залежності
 
 ```bat
 python scripts\bootstrap_dependencies.py --all
 ```
 
-Або мінімально:
+Мінімально для build:
 
 ```bat
 python scripts\bootstrap_dependencies.py --with-build --with-gui
 ```
 
-### 5.2 Зібрати програму
+### 6.2 Зібрати програму
 
 ```bat
 python scripts\build_desktop_app.py
 ```
 
-Результат:
+### 6.3 Перевірити збірку
 
-```text
-dist/JAV/JAV.exe
-dist/JAV/JAV-Console.exe
-dist/JAV/run_desktop.bat
-dist/JAV/run_doctor.bat
-dist/JAV/.env
-dist/JAV/data/
+```bat
+python scripts\build_smoke_test.py
 ```
 
-### 5.3 Запуск зібраної програми
+### 6.4 Запуск після збірки
 
-Для звичайного запуску:
-
-```text
-dist/JAV/JAV.exe
+```bat
+dist\JAV\JAV.exe
 ```
 
 або:
@@ -449,49 +264,20 @@ dist/JAV/JAV.exe
 dist\JAV\run_desktop.bat
 ```
 
-Для діагностики:
-
-```bat
-dist\JAV\run_doctor.bat
-```
-
-### 5.4 Важливо про переміщення
-
-У зібраній версії `.env` використовує відносні шляхи:
-
-```env
-JAV_PORTABLE=true
-JARVIS_DATA_DIR=data/brain
-ACTION_WORKSPACE_PATH=data/workspace
-SCREENSHOT_DIR=data/screenshots
-```
-
-Тому всю папку `dist/JAV/` можна перенести, наприклад, у:
-
-```text
-E:/JAV/
-D:/AI/JAV/
-PortableSSD:/JAV/
-```
-
-і вона має працювати далі, бо памʼять і workspace лежать поруч із програмою.
-
 ---
 
-## 6. Як зробити Windows installer
+## 7. Як зробити Windows installer
 
-Installer робиться через **Inno Setup** і дозволяє вибрати папку встановлення. Можна встановити одразу на переносний HDD/SSD, наприклад `E:\JAV`.
+Installer збирається через **Inno Setup**.
 
-### 6.1 Зібрати EXE-папку
+### 7.1 Зібрати EXE-папку
 
 ```bat
 python scripts\bootstrap_dependencies.py --all
 python scripts\build_desktop_app.py
 ```
 
-### 6.2 Зібрати installer
-
-Встанови Inno Setup, потім:
+### 7.2 Зібрати installer
 
 ```bat
 python scripts\build_windows_installer.py
@@ -503,51 +289,32 @@ python scripts\build_windows_installer.py
 installer_output/JAV_Setup_PortableAware.exe
 ```
 
-### 6.3 Що робить installer
-
 Installer:
 
-```text
 - дозволяє вибрати папку встановлення;
-- копіює всю програму в цю папку;
-- створює data/brain, data/workspace, data/screenshots;
-- створює portable .env з відносними шляхами;
-- створює ярлики JAV, JAV Doctor, JAV Chat;
-- не ставить LLM-моделі й не прописує API-ключі;
-- Python-залежності вже вбудовані у зібраний PyInstaller app.
-```
-
-Тобто після встановлення папку програми можна перенести на інший диск, і вона збереже працездатність, якщо запускати `JAV.exe` з цієї ж папки.
-
-### 6.4 Якщо запускаєш із вихідного коду, а не EXE
-
-Для source/dev запуску залежності ставляться так:
-
-```bat
-python scripts\bootstrap_dependencies.py --all
-```
-
-Це поставить Python-пакети, але **не встановить LLM**. Ollama/API/моделі налаштовуються окремо.
+- може ставити програму прямо на переносний диск;
+- створює `data/brain`, `data/workspace`, `data/screenshots`;
+- створює `.env` з portable-шляхами;
+- створює ярлики для JAV, Doctor, Chat/Console;
+- **не встановлює LLM-моделі** й **не додає API-ключі** автоматично.
 
 ---
 
-## 7. Налаштування моделей/API
+## 8. Налаштування моделей / API
 
-JAV використовує **role-based model router**. Різні ролі можуть мати різні моделі/API.
+JAV використовує **role-based model router**. Різні ролі можуть використовувати різні моделі:
 
-Основні ролі:
+| Роль | Для чого |
+|---|---|
+| `fast` | швидкі відповіді |
+| `reason` | глибше мислення |
+| `code` | code repair / патчі |
+| `critic` | перевірка планів і відповідей |
+| `vision` | аналіз екрана/зображень |
+| `embedding` | памʼять / vector search |
+| `action` | GUI/task/action planning |
 
-```text
-fast      — швидкі відповіді
-reason    — глибоке мислення
-code      — ремонт коду
-critic    — перевірка планів
-vision    — аналіз екрана/зображень
-embedding — памʼять/vector search
-action    — GUI/task/action planning
-```
-
-Приклад локального `.env` через Ollama:
+### 8.1 Ollama offline-приклад
 
 ```env
 MODEL_PROFILE=custom
@@ -581,19 +348,71 @@ ollama pull qwen2.5-coder:7b
 ollama pull llava
 ```
 
-Перевірка моделей:
+Перевірка:
+
+```bash
+python main.py --model-doctor
+```
+
+У чаті:
 
 ```text
 /models
-/model-health
-/model-status
+/model-test fast
+/model-test code
 ```
+
+### 8.2 OpenAI-compatible / NVIDIA NIM / інші API
+
+Для OpenAI-compatible API:
+
+```env
+OPENAI_BASE_URL=https://your-api/v1
+OPENAI_API_KEY=your_key
+
+MODEL_FAST_PROVIDER=openai_compatible
+MODEL_FAST_NAME=your-model-id
+
+MODEL_REASON_PROVIDER=openai_compatible
+MODEL_REASON_NAME=your-model-id
+
+MODEL_CODE_PROVIDER=openai_compatible
+MODEL_CODE_NAME=your-code-model-id
+```
+
+Для NVIDIA NIM зазвичай використовується OpenAI-compatible endpoint:
+
+```env
+OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
+OPENAI_API_KEY=your_nvidia_api_key
+MODEL_FAST_PROVIDER=openai_compatible
+MODEL_FAST_NAME=exact_model_id_from_nvidia_catalog
+```
+
+Головне: назва моделі має точно збігатися з model ID провайдера.
 
 ---
 
-## 8. Голос
+## 9. Голос: STT, TTS, Wake Word, Emotional Voice
 
-### STT
+### 9.1 Перевірка голосу
+
+```bash
+python main.py --voice-doctor
+python main.py --voice-list-mics
+python main.py --voice-test-pyttsx3 "JAV voice test"
+python main.py --voice-test-piper "JAV voice test"
+```
+
+### 9.2 Встановити Python voice-залежності
+
+```bash
+python scripts/bootstrap_dependencies.py --with-voice
+```
+
+Piper CLI і `.onnx` voice model ставляться окремо. Якщо Piper не налаштований, JAV може використовувати `pyttsx3` fallback.
+
+### 9.3 STT
 
 ```env
 VOICE_STT_MODEL=small
@@ -602,7 +421,7 @@ VOICE_STT_COMPUTE_TYPE=int8
 VOICE_STT_LANGUAGE=
 ```
 
-### TTS
+### 9.4 TTS
 
 Piper:
 
@@ -612,7 +431,7 @@ PIPER_EXECUTABLE=piper
 PIPER_MODEL_PATH=/path/to/voice.onnx
 ```
 
-Fallback через pyttsx3:
+Auto fallback:
 
 ```env
 VOICE_TTS_BACKEND=auto
@@ -620,55 +439,159 @@ PYTTSX3_RATE=175
 PYTTSX3_VOLUME=1.0
 ```
 
+### 9.5 Wake word
+
+```env
+VOICE_WAKE_WORD_DETECTOR=openwakeword
+VOICE_WAKE_WORD_MODEL=hey_jarvis
+VOICE_WAKE_WORD_THRESHOLD=0.5
+VOICE_WAKE_WORD_ACK=true
+```
+
+Якщо `openwakeword` не встановлений, можна користуватись текстовим fallback через `VOICE_WAKE_WORD`.
+
+### 9.6 Emotional voice modulation
+
+```env
+VOICE_EMOTIONAL_TTS=true
+VOICE_EMOTIONAL_TTS_STRENGTH=0.35
+```
+
+Стан у чаті:
+
+```text
+/emotion-voice-status
+```
+
+---
+
+## 10. Ambient Perception / екран / OCR
+
+JAV може фоново спостерігати екран і помічати зміни або помилки.
+
+```env
+SCREEN_AUTO_WATCH_ENABLED=false
+SCREEN_AMBIENT_INTERVAL=8
+SCREEN_AMBIENT_SPEECH_GAP=3
+SCREEN_AMBIENT_PROACTIVE=true
+SCREEN_AMBIENT_PRIVACY_MODE=true
+SCREEN_AMBIENT_STORE_SCREENSHOTS=false
+SCREEN_AMBIENT_PROACTIVE_COOLDOWN=120
+SCREEN_AMBIENT_SAME_ERROR_COOLDOWN=300
+SCREEN_AMBIENT_EXCLUDED_APPS=
+SCREEN_AMBIENT_PAUSE_ON_SENSITIVE=true
+```
+
+Стан:
+
+```text
+/ambient-status
+```
+
+Ручний аналіз екрана:
+
+```text
+/see
+/gui
+```
+
+Для OCR потрібні `mss`, `pytesseract` і встановлений Tesseract.
+
+---
+
+## 11. Workspace / sandbox
+
+JAV не працює з усім диском напряму. Безпечні файлові дії працюють тільки в workspace.
+
+Перевірити workspace:
+
+```text
+/workspace
+```
+
+У `.env`:
+
+```env
+ACTION_WORKSPACE_PATH=data/workspace
+```
+
+Приклади:
+
+```text
+/ls .
+/read README.md
+/search error
+/write notes/test.txt :: hello
+/repair .
+```
+
+Для ризикових дій потрібні safety-рівень і approval.
+
+---
+
+## 12. Памʼять
+
+За замовчуванням:
+
+```text
+~/.jarvis_brain/
+```
+
+У portable mode:
+
+```text
+data/brain/
+```
+
+Ключові файли:
+
+```text
+data/brain/longterm_memory.sqlite3
+data/brain/skills_knowledge_v14.json
+data/brain/runtime_health.json
+data/brain/logs/
+```
+
+Команди:
+
+```text
+/memory
+/storage
+/recall <тема>
+```
+
+У desktop UI є вкладка **Memory** з базовим браузером SQLite-памʼяті.
+
+---
+
+## 13. Desktop UI
+
 Запуск:
 
 ```bash
-python main.py --voice
+python main.py --desktop
 ```
+
+або:
+
+```bat
+run_desktop.bat
+```
+
+V18 Modern Assistant Shell має:
+
+- dark assistant dashboard;
+- HUD-індикатори `Kernel / Voice / Ambient / Models`;
+- статус-картки `System / Tasks / Approvals / Memory`;
+- покращений chat із timestamp;
+- швидкі сценарії `Diagnose / Screen / Models / Fix project / Research`;
+- вкладки `Home / Commands / Tasks / Approvals / Memory / Models / Events / Doctor / Voice / Logs`.
 
 ---
 
-## 9. Основні команди в чаті
+## 14. Service / Watchdog / 24-7 режим
 
-```text
-/models                      статус моделей
-/system                      стан системи
-/proactive                   proactive assistant status
-/daily-summary               підсумок дня
-/memory                      стан памʼяті
-/recall <тема>               пошук у памʼяті
-/web-search <запит>          пошук в інтернеті
-/web-learn <тема>            web learning
-/see                         OCR/екран
-/gui                         GUI understanding
-/gui-task <ціль>             GUI-задача
-/task <ціль>                 task chain
-/task-auto <ціль>            автономний task chain
-/repair <path>               repair-agent
-/skills                      навички
-/skill <query>               пошук навички
-/knowledge                   knowledge graph
-/safety 4                    підняти safety-рівень
-/approve <id>                схвалити дію
-/deny <id>                   відхилити дію
-```
-
-Також працює природна мова:
-
-```text
-покажи стан системи
-згадай що ми вирішили про portable mode
-знайди в інтернеті як виправити цю помилку
-розберися з помилками в проєкті
-знайди музику на YouTube
-проаналізуй екран
-```
-
----
-
-## 10. Service mode / 24/7
-
-Запуск сервісу:
+Service mode:
 
 ```bash
 python main.py --service
@@ -680,133 +603,141 @@ Watchdog:
 python scripts/watchdog.py
 ```
 
-Windows:
+Windows лаунчери:
 
 ```bat
+run_service.bat
 run_watchdog.bat
 ```
 
-Linux:
+Linux лаунчери:
 
 ```bash
+./run_service.sh
 ./run_watchdog.sh
 ```
 
-Linux user systemd:
+---
 
-```bash
-python scripts/install_systemd_service.py
-systemctl --user daemon-reload
-systemctl --user enable --now jav-watchdog.service
-systemctl --user status jav-watchdog.service
-```
+## 15. Основні можливості зараз
 
-Windows автозапуск:
-
-```bash
-python scripts/create_windows_startup_shortcut.py
-```
+| Напрям | Статус |
+|---|---|
+| Kernel + module system | ✅ |
+| Desktop app | ✅ |
+| Chat mode | ✅ |
+| Voice STT/TTS | ✅ MVP |
+| Wake word | ✅ MVP |
+| Back-channel / interrupt / streaming | ✅ MVP |
+| Emotional TTS | ✅ MVP |
+| Ambient screen perception | ✅ MVP |
+| Screen OCR + GUI understanding | ✅ MVP |
+| Safe actions / workspace | ✅ MVP |
+| Long-term memory | ✅ MVP |
+| Web learning/search | ✅ MVP |
+| Code/project repair | ✅ MVP |
+| Task chains/orchestrator | ✅ MVP |
+| Skill learning + knowledge graph | ✅ MVP |
+| System monitor + proactive companion | ✅ MVP |
+| Runtime service + watchdog | ✅ MVP |
+| Portable mode | ✅ |
+| Model/API router | ✅ |
+| Safety constitution | ✅ |
 
 ---
 
-## 11. Безпека
+## 16. Типові проблеми
 
-Будь-яка дія проходить через safety layer:
+### `Ollama not reachable`
+
+Запусти:
+
+```bash
+ollama serve
+```
+
+і підтягни потрібні моделі:
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+### `Piper executable not found`
+
+Piper CLI не встановлений або шлях не вказаний у `.env`.
+
+### `sounddevice unavailable`
+
+Встанови voice-залежності:
+
+```bash
+python scripts/bootstrap_dependencies.py --with-voice
+```
+
+На Linux може знадобитись:
+
+```bash
+sudo apt install portaudio19-dev alsa-utils
+```
+
+### `/read README.md` не бачить файл
+
+`/read` читає з workspace, а не з кореня всього диску. Перевір:
 
 ```text
-action_request
-→ Constitution
-→ Sandbox
-→ RiskEngine
-→ PermissionManager
-→ ActionFirewall
-→ Executor
+/workspace
 ```
 
-За замовчуванням:
+### Desktop не стартує
 
-- запис файлів дозволений тільки в workspace;
-- shell-команди вимкнені;
-- GUI automation guided, не повністю auto;
-- паролі/API keys/платежі/ризикові hotkeys блокуються або потребують підтвердження.
-
-Ключові параметри:
-
-```env
-ACTION_ALLOW_SHELL=false
-GUI_AUTOMATION_AUTO_ENABLED=false
-GUI_AUTOMATION_BLOCK_SENSITIVE=true
-PROACTIVE_SPEAK_NOTIFICATIONS=false
-```
-
----
-
-## 12. Changelog
-
-Детальна історія змін тепер ведеться в одному файлі:
-
-```text
-CHANGELOG.md
-```
-
-Окремі `V*_*.md` patch-файли прибрані з кореня, щоб проєкт був чистішим.
-
-## Model connection troubleshooting
-
-Use these commands after configuring Ollama or API providers:
+Запусти:
 
 ```bash
 python main.py --doctor
-python main.py --chat
 ```
 
-Inside chat:
+і подивись crash log:
 
 ```text
-/models
-/model-test fast
-/model-test code
+data/brain/logs/desktop_crash.log
 ```
 
-If Ollama is running but a role is unavailable, JAV now shows the exact missing model.
-Example fix:
+---
 
-```bash
-ollama serve
-ollama pull qwen2.5:7b
-ollama pull llama3.1:8b
-ollama pull qwen2.5-coder:7b
+## 17. Документація для розробки
+
+Корисні файли:
+
+```text
+CHANGELOG.md
+.env.example
+scripts/doctor.py
+scripts/bootstrap_dependencies.py
+scripts/build_desktop_app.py
+scripts/build_windows_installer.py
+scripts/build_smoke_test.py
 ```
 
-In Desktop UI, open **Models** → **Setup Wizard** or **Run Health Check**.
-Model/provider/API changes are saved to `.env`; model-router settings are now reloaded live in desktop mode, but a full restart is still recommended after changing paths, voice, OCR, or service settings.
-
-## V16 — Model Setup Wizard 2.0
-
-Added a full model configuration workflow:
-
-- `python main.py --model-doctor` for offline model diagnostics;
-- desktop Model Setup Wizard 2.0 with Offline / Low RAM / Hybrid / Cloud / Code / Voice profiles;
-- per-role assignment for `fast`, `reason`, `code`, `critic`, `vision`, `embedding`, `action`;
-- Ollama discovery through `/api/tags`;
-- installed/missing model indicators;
-- copy-ready `ollama pull ...` commands for missing local models;
-- API key fields for Gemini, OpenAI-compatible and Anthropic providers;
-- safer `.env` writing beside the app for portable/frozen builds.
-
-Recommended local starter models:
+Перед релізом:
 
 ```bash
-ollama serve
-ollama pull qwen2.5:7b
-ollama pull llama3.1:8b
-ollama pull qwen2.5-coder:7b
-ollama pull nomic-embed-text
-```
-
-Run diagnostics:
-
-```bash
+python -m compileall -q .
+python main.py --doctor
 python main.py --model-doctor
+python main.py --voice-doctor
+python scripts/clean_build.py
 ```
+
+---
+
+## 18. Roadmap коротко
+
+Найближчі пріоритети:
+
+1. live-тести Windows desktop/voice/ambient;
+2. ще кращий installer/portable validation;
+3. Real Vision integration через vision model;
+4. Browser automation через Playwright/DOM;
+5. UI 2.0 на PySide6/Tauri, якщо Tkinter стане тісним;
+6. Smart-home / Android / remote client.
 

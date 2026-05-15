@@ -1,5 +1,12 @@
 # Changelog
 
+## V18.1 — README / Install Guide Cleanup
+
+- Reworked README structure so install, first launch, build, portable and installer instructions are at the top.
+- Added clearer sections for doctor, model setup, voice setup, ambient perception, workspace, memory and troubleshooting.
+- Removed duplicate/confusing ordering from previous README.
+
+
 ## V18 — Modern Assistant Shell
 
 - Upgraded the desktop UI into a cleaner Jarvis-style assistant cockpit while keeping lightweight Tkinter/ttk.
