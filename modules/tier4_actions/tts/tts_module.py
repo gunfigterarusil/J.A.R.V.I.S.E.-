@@ -47,7 +47,7 @@ class TTSModule(CognitiveModule):
         self._muted = False
         # Phase 3C — emotional voice modulation
         self._mod_enabled: bool = True
-        self._mod_strength: float = 1.0
+        self._mod_strength: float = 0.35
         self._emotion_affect: dict = {}
         self._hormone_levels: dict = {}
         self._base_pyttsx3_rate: int = 175
@@ -152,7 +152,7 @@ class TTSModule(CognitiveModule):
             self._backends.extend([("piper", piper), ("pyttsx3", pyttsx3_backend)])
 
         self._mod_enabled = bool(getattr(cfg, "emotional_tts_enabled", True))
-        self._mod_strength = float(getattr(cfg, "emotional_tts_strength", 1.0))
+        self._mod_strength = max(0.0, min(1.0, float(getattr(cfg, "emotional_tts_strength", 0.35))))
         for name, b in self._backends:
             if name == "pyttsx3":
                 self._base_pyttsx3_rate = int(getattr(b, "rate", 175))
@@ -327,6 +327,9 @@ class TTSModule(CognitiveModule):
                     "voice_enabled": self._voice_enabled,
                     "active_backend": self._active_backend,
                     "backend_mode": self._configured_backend,
+                    "emotional_tts": self._mod_enabled,
+                    "emotional_strength": self._mod_strength,
+                    "voice_modulation": self._compute_voice_modulation() if self._mod_enabled else {},
                 },
                 source_module=self.module_id,
             ),
@@ -355,6 +358,9 @@ class TTSModule(CognitiveModule):
                 "backends_info": backends_info,
                 "last_error": self._last_error,
                 "muted": self._muted,
+                "emotional_tts": self._mod_enabled,
+                "emotional_strength": self._mod_strength,
+                "voice_modulation": self._compute_voice_modulation() if self._mod_enabled else {},
             }
         )
         return base

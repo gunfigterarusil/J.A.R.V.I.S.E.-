@@ -790,3 +790,37 @@ Run diagnostics:
 python main.py --model-doctor
 ```
 
+
+## V17.1 Ambient/Voice Stability Notes
+
+Ambient Perception is controlled by:
+
+```env
+SCREEN_AUTO_WATCH_ENABLED=false
+SCREEN_AMBIENT_INTERVAL=8
+SCREEN_AMBIENT_PROACTIVE=true
+SCREEN_AMBIENT_PRIVACY_MODE=true
+SCREEN_AMBIENT_STORE_SCREENSHOTS=false
+SCREEN_AMBIENT_PROACTIVE_COOLDOWN=120
+SCREEN_AMBIENT_SAME_ERROR_COOLDOWN=300
+SCREEN_AMBIENT_EXCLUDED_APPS=
+SCREEN_AMBIENT_PAUSE_ON_SENSITIVE=true
+```
+
+Useful chat commands:
+
+```text
+/ambient-status
+/emotion-voice-status
+```
+
+The first ambient capture is used as a baseline only. JAV will not proactively notify you just because a baseline was created. Ambient screenshots are not stored by default; OCR/GUI parsing uses the temporary image and removes it after processing.
+
+Emotional TTS is controlled by:
+
+```env
+VOICE_EMOTIONAL_TTS=true
+VOICE_EMOTIONAL_TTS_STRENGTH=0.35
+```
+
+Set `VOICE_EMOTIONAL_TTS_STRENGTH=0` to disable modulation or increase it up to `1.0` for a stronger effect.

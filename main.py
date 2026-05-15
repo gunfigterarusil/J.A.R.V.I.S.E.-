@@ -65,20 +65,25 @@ def configure_runtime_logging(cfg: KernelConfig, service: bool = False) -> None:
     root_logger.addHandler(stream)
     runtime = getattr(cfg, "runtime", None)
     if runtime is not None and bool(getattr(runtime, "log_to_file", True)):
-        data_dir = Path(getattr(cfg, "persistence_dir", "~/.jarvis_brain")).expanduser()
-        log_dir = Path(runtime.resolve_log_dir(str(data_dir))).expanduser()
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / ("jav_service.log" if service else "jav.log")
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=int(getattr(runtime, "log_max_bytes", 2_097_152)),
-            backupCount=int(getattr(runtime, "log_backup_count", 5)),
-            encoding="utf-8",
-        )
-        file_handler.setLevel(level)
-        file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
-        root_logger.addHandler(file_handler)
-        logger.info("[Main] File logging enabled: %s", log_file)
+        try:
+            data_dir = Path(getattr(cfg, "persistence_dir", "~/.jarvis_brain")).expanduser()
+            log_dir = Path(runtime.resolve_log_dir(str(data_dir))).expanduser()
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / ("jav_service.log" if service else "jav.log")
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=int(getattr(runtime, "log_max_bytes", 2_097_152)),
+                backupCount=int(getattr(runtime, "log_backup_count", 5)),
+                encoding="utf-8",
+            )
+            file_handler.setLevel(level)
+            file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+            root_logger.addHandler(file_handler)
+            logger.info("[Main] File logging enabled: %s", log_file)
+        except Exception as exc:
+            # Doctor/chat/desktop must still start even when an old portable
+            # data folder or locked home directory has broken log permissions.
+            logger.warning("[Main] File logging disabled: %s", exc)
 
 
 def build_kernel(cfg: KernelConfig) -> Kernel:
@@ -251,10 +256,10 @@ async def run_with_chat(kernel: Kernel) -> None:
                 print("  /status, /modules, /events, /runtime, /doctor (external), /exit")
                 print("  /models, /model-health, /model-test [role]")
                 print("  /voice, /voice-mics, /voice-test-pyttsx3, /voice-test-piper")
-                print("  /mute, /unmute, /stop-speaking, /tts-status")
+                print("  /mute, /unmute, /stop-speaking, /tts-status, /emotion-voice-status")
                 print("  /memory, /recall <query>")
                 print("  /system, /proactive, /daily-summary")
-                print("  /see, /vision, /gui")
+                print("  /see, /vision, /gui, /ambient-status")
                 print("  /task <goal>, /tasks, /task-step, /task-report")
                 print("  /workspace, /actions, /ls, /read <file>, /write <file> :: <content>, /run <cmd>")
                 print("  /repair <path>, /apply-repair <proposal_id>")
@@ -337,6 +342,22 @@ async def run_with_chat(kernel: Kernel) -> None:
                     Priority.BACKGROUND,
                 )
                 print("Jarvis: TTS status requested. Check events/desktop status if TTS module is active.\n")
+                continue
+
+            if lower in {"/emotion-voice-status", "/emotional-tts", "/voice-modulation"}:
+                mod = kernel.modules.get("tts") or kernel.modules.get("tts_module")
+                if not mod:
+                    print("Jarvis: TTS module is not loaded. Start voice mode to enable TTS status.\n")
+                else:
+                    try:
+                        data = mod.to_dict() if hasattr(mod, "to_dict") else {}
+                    except Exception as exc:
+                        data = {"error": repr(exc)}
+                    print("Emotional voice status:")
+                    print(f"- enabled: {data.get('emotional_tts')}")
+                    print(f"- strength: {data.get('emotional_strength')}")
+                    print(f"- active backend: {data.get('active_backend') or data.get('backend_mode')}")
+                    print(f"- modulation: {data.get('voice_modulation', {})}\n")
                 continue
 
 
@@ -786,6 +807,29 @@ async def run_with_chat(kernel: Kernel) -> None:
                     print(f"- open loops: {snap.get('open_loop_count')} patterns: {snap.get('pattern_count')}")
                     print(f"- top intents: {snap.get('top_intents')}")
                     print(f"- environment: {snap.get('environment')}\n")
+                continue
+
+            if lower in {"/ambient-status", "/screen-watch", "/ambient"}:
+                mod = kernel.modules.get("screen_parser")
+                if not mod:
+                    print("Jarvis: screen_parser module is not loaded.\n")
+                else:
+                    try:
+                        data = mod.to_dict() if hasattr(mod, "to_dict") else {}
+                        amb = data.get("ambient", {})
+                    except Exception as exc:
+                        amb = {"error": repr(exc)}
+                    print("Ambient perception status:")
+                    print(f"- enabled: {amb.get('enabled')}")
+                    print(f"- interval: {amb.get('interval')}s")
+                    print(f"- speech gap: {amb.get('speech_gap')}s")
+                    print(f"- proactive: {amb.get('proactive')}")
+                    print(f"- privacy mode: {amb.get('privacy_mode')}")
+                    print(f"- stores screenshots: {amb.get('store_screenshots')}")
+                    print(f"- baseline ready: {amb.get('baseline_ready')}")
+                    print(f"- pending: {amb.get('pending')}")
+                    print(f"- last window: {amb.get('last_window')}")
+                    print(f"- last context: {amb.get('last_context')}\n")
                 continue
 
             if user_text.lower() in {"/see", "/screen", "/read-screen", "/explain-screen", "/vision", "/gui", "/understand-screen", "/analyze-screen"}:

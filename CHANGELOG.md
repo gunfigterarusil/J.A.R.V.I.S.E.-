@@ -305,3 +305,26 @@ python main.py --model-doctor
 - Added spoken control phrases for mute/unmute/interrupt, configurable through `.env`.
 - Desktop Voice tab can now start continuous or push-to-talk voice process.
 - Settings Center exposes voice input mode, mute phrases, unmute phrases and start-muted mode.
+
+## V17.1 — Ambient/Voice Stability + Privacy
+
+- Fixed startup resilience: file logging no longer crashes doctor/chat/desktop if the log folder is locked or has bad permissions.
+- Hardened Phase 3B Ambient Perception:
+  - first background screen capture is now baseline-only and does not trigger noisy proactive alerts;
+  - repeated proactive screen alerts now respect cooldowns;
+  - repeated identical screen errors are suppressed for a configurable cooldown;
+  - ambient screenshots are not stored by default;
+  - sensitive screens can suppress proactive suggestions;
+  - excluded app/window substrings can pause ambient proactive events.
+- Added Phase 3C Emotional Voice polish:
+  - default modulation strength reduced to 0.35 for subtler voice changes;
+  - `/emotion-voice-status` shows active modulation state.
+- Added `/ambient-status` to inspect background screen watch state.
+- Doctor now reports Ambient Perception and Emotional TTS configuration.
+- Added new environment variables for privacy/cooldown tuning:
+  - `SCREEN_AMBIENT_PRIVACY_MODE`
+  - `SCREEN_AMBIENT_STORE_SCREENSHOTS`
+  - `SCREEN_AMBIENT_PROACTIVE_COOLDOWN`
+  - `SCREEN_AMBIENT_SAME_ERROR_COOLDOWN`
+  - `SCREEN_AMBIENT_EXCLUDED_APPS`
+  - `SCREEN_AMBIENT_PAUSE_ON_SENSITIVE`
