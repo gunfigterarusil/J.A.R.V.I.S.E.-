@@ -1,288 +1,101 @@
-"""JAV runtime doctor: checks common startup/runtime problems without launching the GUI.
-
-V15.5: adds DoctorCheck dataclass and run_checks() for programmatic use by GUIDoctorPanel
-and FirstLaunchWizard. The original main() still works unchanged.
-"""
+"""JAV doctor — startup and environment diagnostics."""
 from __future__ import annotations
 
-import importlib
+import importlib.util
 import os
 import platform
-import shutil
-import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
-
-RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
-ROOT = (
-    Path(sys.executable).resolve().parent
-    if getattr(sys, "frozen", False)
-    else Path(__file__).resolve().parents[1]
-)
-for _p in (RESOURCE_ROOT, ROOT):
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
 
 
-# ---------------------------------------------------------------------------
-# Structured result for programmatic use (GUIDoctorPanel, FirstLaunchWizard)
-# ---------------------------------------------------------------------------
-
-@dataclass
-class DoctorCheck:
-    name: str
-    passed: bool
-    detail: str = ""
-    fixable: bool = False
-    fix_cmd: str = ""           # e.g. "pip install psutil"
-    category: str = "required"  # "required" | "optional" | "external"
+def _status(ok: bool) -> str:
+    return "OK" if ok else "FAIL"
 
 
-def run_checks(root: Optional[Path] = None) -> List[DoctorCheck]:
-    """Return structured check results without printing anything.
-
-    Used by GUIDoctorPanel and DependencyCheckStep in the wizard.
-    """
-    if root is None:
-        root = ROOT
-
-    results: List[DoctorCheck] = []
-
-    # ── File structure ───────────────────────────────────────────────────────
-    for fname in ("main.py", "config.py", "README.md", "CHANGELOG.md"):
-        exists = (root / fname).exists()
-        results.append(DoctorCheck(
-            name=f"{fname} exists",
-            passed=exists,
-            detail="" if exists else f"not found at {root / fname}",
-            category="required",
-        ))
-
-    results.append(DoctorCheck(
-        name="modules directory",
-        passed=(root / "modules").exists() or (RESOURCE_ROOT / "modules").exists(),
-        category="required",
-    ))
-    results.append(DoctorCheck(
-        name="interfaces directory",
-        passed=(root / "interfaces").exists() or (RESOURCE_ROOT / "interfaces").exists(),
-        category="required",
-    ))
-
-    # ── Core imports ─────────────────────────────────────────────────────────
-    for mod in [
-        "config",
-        "core.kernel",
-        "core.llm_router",
-        "interfaces.desktop.desktop_app",
-        "interfaces.desktop.settings_window",
-    ]:
-        try:
-            importlib.import_module(mod)
-            results.append(DoctorCheck(name=f"import {mod}", passed=True,
-                                       category="required"))
-        except Exception as exc:
-            results.append(DoctorCheck(
-                name=f"import {mod}",
-                passed=False,
-                detail=repr(exc),
-                category="required",
-            ))
-
-    # ── Optional Python packages ─────────────────────────────────────────────
-    optional_packages = [
-        ("tkinter",        "Desktop UI / Tkinter",   "",                   False),
-        ("psutil",         "System monitor",          "psutil",             True),
-        ("mss",            "Screen capture",          "mss",                True),
-        ("PIL",            "Pillow image support",    "Pillow",             True),
-        ("pytesseract",    "OCR Python binding",      "pytesseract",        True),
-        ("pyautogui",      "GUI automation",          "pyautogui",          True),
-        ("sounddevice",    "Microphone input",        "sounddevice",        True),
-        ("faster_whisper", "Whisper STT",             "faster-whisper",     True),
-        ("pyttsx3",        "pyttsx3 fallback TTS",    "pyttsx3",            True),
-    ]
-    for mod, name, pkg, fixable in optional_packages:
-        try:
-            importlib.import_module(mod)
-            results.append(DoctorCheck(name=name, passed=True, detail=mod,
-                                       category="optional"))
-        except Exception as exc:
-            fix_cmd = f"pip install {pkg}" if (fixable and pkg) else ""
-            # On frozen builds pip won't work — suppress the fix button
-            if getattr(sys, "frozen", False):
-                fixable = False
-                fix_cmd = ""
-            results.append(DoctorCheck(
-                name=name,
-                passed=False,
-                detail=f"{mod} not available",
-                fixable=fixable,
-                fix_cmd=fix_cmd,
-                category="optional",
-            ))
-
-    # ── External tools ───────────────────────────────────────────────────────
-    for tool, desc, optional_tool in [
-        ("tesseract", "Tesseract OCR", False),
-        ("piper",     "Piper TTS",     True),
-        ("ollama",    "Ollama (local LLM)", True),
-    ]:
-        path = shutil.which(tool)
-        results.append(DoctorCheck(
-            name=desc,
-            passed=path is not None,
-            detail=path or f"not found in PATH",
-            category="optional" if optional_tool else "external",
-        ))
-
-    # ── Microphone availability ───────────────────────────────────────────────
-    try:
-        import sounddevice as sd
-        devices = sd.query_devices()
-        has_mic = any(d["max_input_channels"] > 0 for d in devices)
-        results.append(DoctorCheck(
-            name="Microphone available",
-            passed=has_mic,
-            detail="input device found" if has_mic else "no input device detected",
-            category="optional",
-        ))
-    except Exception:
-        results.append(DoctorCheck(
-            name="Microphone available",
-            passed=False,
-            detail="sounddevice not available",
-            category="optional",
-        ))
-
-    # ── Write permissions ─────────────────────────────────────────────────────
-    try:
-        test_file = root / ".write_test_tmp"
-        test_file.touch()
-        test_file.unlink()
-        results.append(DoctorCheck(
-            name="Write permission in app folder",
-            passed=True,
-            category="required",
-        ))
-    except Exception as exc:
-        results.append(DoctorCheck(
-            name="Write permission in app folder",
-            passed=False,
-            detail=repr(exc),
-            category="required",
-        ))
-
-    return results
+def check_import(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
 
 
-# ---------------------------------------------------------------------------
-# Original CLI entry point (unchanged behaviour)
-# ---------------------------------------------------------------------------
-
-def check(name: str, ok: bool, detail: str = "") -> bool:
-    mark = "OK" if ok else "FAIL"
-    print(f"[{mark}] {name}{': ' + detail if detail else ''}")
-    return ok
-
-
-def optional_import(module: str, feature: str) -> None:
-    try:
-        importlib.import_module(module)
-        check(feature, True, module)
-    except Exception as exc:
-        check(feature, False, f"{module} not available ({exc})")
-
-
-def main() -> int:
+def run_doctor(project_root: str | Path | None = None) -> int:
+    root = Path(project_root or Path(__file__).resolve().parents[1]).resolve()
     print("JAV Doctor")
-    print(f"Root: {ROOT}")
-    print(f"Python: {sys.version.split()[0]} ({sys.executable})")
-    print(f"OS: {platform.platform()}")
-    print()
+    print("==========")
+    print(f"Project: {root}")
+    print(f"Python:  {sys.version.split()[0]} ({platform.system()} {platform.release()})")
 
-    ok_all = True
-    ok_all &= check("main.py exists", (ROOT / "main.py").exists())
-    ok_all &= check("config.py exists", (ROOT / "config.py").exists())
-    ok_all &= check("README.md exists", (ROOT / "README.md").exists())
-    ok_all &= check("CHANGELOG.md exists", (ROOT / "CHANGELOG.md").exists())
-    ok_all &= check("modules directory exists",
-                    (ROOT / "modules").exists() or (RESOURCE_ROOT / "modules").exists())
-    ok_all &= check("interfaces directory exists",
-                    (ROOT / "interfaces").exists() or (RESOURCE_ROOT / "interfaces").exists())
+    problems: list[str] = []
 
-    print("\nCore imports:")
-    for mod in [
-        "config",
-        "core.kernel",
-        "core.llm_router",
-        "interfaces.desktop.desktop_app",
-        "interfaces.desktop.settings_window",
-    ]:
-        try:
-            importlib.import_module(mod)
-            ok_all &= check(mod, True)
-        except Exception as exc:
-            ok_all &= check(mod, False, repr(exc))
+    required_files = ["main.py", "config.py", "core/kernel.py", "modules"]
+    print("\nCore files:")
+    for item in required_files:
+        ok = (root / item).exists()
+        print(f"  [{_status(ok)}] {item}")
+        if not ok:
+            problems.append(f"Missing required file: {item}")
 
-    print("\nOptional features:")
-    optional_import("tkinter", "Desktop UI / Tkinter")
-    optional_import("psutil", "System monitor")
-    optional_import("mss", "Screen capture")
-    optional_import("PIL", "Pillow image support")
-    optional_import("pytesseract", "OCR Python binding")
-    optional_import("pyautogui", "GUI automation")
-    optional_import("sounddevice", "Microphone input")
-    optional_import("faster_whisper", "Whisper STT")
-    optional_import("pyttsx3", "pyttsx3 fallback TTS")
+    print("\nRequired packages:")
+    for pkg, import_name in [("fastapi", "fastapi"), ("uvicorn", "uvicorn")]:
+        ok = check_import(import_name)
+        print(f"  [{_status(ok)}] {pkg}")
+        if not ok:
+            problems.append(f"Missing package: {pkg}")
 
-    print("\nExternal tools:")
-    check("Tesseract executable", shutil.which("tesseract") is not None,
-          shutil.which("tesseract") or "install tesseract-ocr")
-    check("Piper executable", shutil.which("piper") is not None,
-          shutil.which("piper") or "optional; set PIPER_EXECUTABLE/PIPER_MODEL_PATH")
-    check("Ollama executable", shutil.which("ollama") is not None,
-          shutil.which("ollama") or "optional; needed for local models")
+    print("\nOptional packages:")
+    optional = [
+        ("python-dotenv", "dotenv"),
+        ("sounddevice", "sounddevice"),
+        ("faster-whisper", "faster_whisper"),
+        ("pyttsx3", "pyttsx3"),
+        ("mss", "mss"),
+        ("Pillow", "PIL"),
+        ("pytesseract", "pytesseract"),
+    ]
+    for pkg, import_name in optional:
+        ok = check_import(import_name)
+        print(f"  [{_status(ok)}] {pkg}")
 
-    print("\nSmoke tests:")
+    print("\nConfiguration:")
     try:
-        result = subprocess.run(
-            [sys.executable, str(ROOT / "main.py"), "--help"],
-            cwd=str(ROOT), text=True, capture_output=True, timeout=20,
-        )
-        ok_all &= check(
-            "main.py --help",
-            result.returncode == 0,
-            (result.stderr or result.stdout).splitlines()[0]
-            if (result.stderr or result.stdout) else "",
-        )
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from config import KernelConfig
+        cfg = KernelConfig()
+        data_dir = Path(cfg.persistence_dir).expanduser()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        writable = os.access(data_dir, os.W_OK)
+        print(f"  [OK] data dir: {data_dir}")
+        print(f"  [{_status(writable)}] data dir writable")
+        if not writable:
+            problems.append(f"Data directory is not writable: {data_dir}")
+        print(f"  [OK] web: {cfg.web_host}:{cfg.web_port}")
+        if getattr(cfg.llm, "gemini_api_key", ""):
+            print("  [WARN] GEMINI_API_KEY is set in environment/.env. Keep it private.")
+        else:
+            print("  [OK] no hardcoded Gemini key detected")
     except Exception as exc:
-        ok_all &= check("main.py --help", False, repr(exc))
+        print(f"  [FAIL] config import/init: {exc}")
+        problems.append(f"Config error: {exc}")
 
+    print("\nKernel smoke test:")
     try:
-        result = subprocess.run(
-            [sys.executable, str(ROOT / "main.py"), "--chat"],
-            input="/runtime\n/exit\n",
-            cwd=str(ROOT), text=True, capture_output=True, timeout=30,
-        )
-        ok_all &= check(
-            "chat smoke test",
-            result.returncode == 0,
-            "returned 0"
-            if result.returncode == 0
-            else (result.stderr[-500:] or result.stdout[-500:]),
-        )
+        from config import KernelConfig
+        from main import build_kernel
+        kernel = build_kernel(KernelConfig())
+        print(f"  [OK] kernel created with {len(kernel.modules)} module(s)")
+        kernel.shutdown()
     except Exception as exc:
-        ok_all &= check("chat smoke test", False, repr(exc))
+        print(f"  [FAIL] kernel startup: {exc}")
+        problems.append(f"Kernel startup error: {exc}")
 
     print("\nResult:")
-    if ok_all:
-        print("Core runtime looks usable. Optional FAIL items only affect their specific features.")
-        return 0
-    print("Some required checks failed. See messages above.")
-    return 1
+    if problems:
+        print(f"  FAIL — {len(problems)} issue(s) found")
+        for p in problems:
+            print(f"   - {p}")
+        return 1
+    print("  OK — core runtime looks usable")
+    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_doctor())

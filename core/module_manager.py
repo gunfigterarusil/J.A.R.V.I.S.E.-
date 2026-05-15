@@ -5,18 +5,14 @@ Modules expose a top-level factory:
 
 ModuleManager scans tier directories, imports each module file,
 calls create_module(), and hands the instance to the kernel.
-
-V15.5: Failed modules are recorded in _failed_modules instead of crashing the whole
-startup. The kernel emits a kernel_degraded event so the UI can show a warning.
 """
 from __future__ import annotations
 
 import importlib.util
 import logging
 import os
-import time
 from pathlib import Path
-from typing import Dict, List, TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from core.kernel import Kernel
@@ -28,7 +24,6 @@ logger = logging.getLogger("core.module_manager")
 class ModuleManager:
     def __init__(self) -> None:
         self._kernel: Optional["Kernel"] = None
-        self._failed_modules: List[Dict] = []  # populated during load_all()
 
     def set_kernel(self, kernel: "Kernel") -> None:
         self._kernel = kernel
@@ -50,7 +45,7 @@ class ModuleManager:
             for pyfile in p.rglob("*_module.py"):
                 if self._has_factory(str(pyfile)):
                     found.append(str(pyfile))
-        return sorted(found)
+        return found
 
     def _has_factory(self, path: str) -> bool:
         try:
@@ -88,36 +83,13 @@ class ModuleManager:
         """Discover and load all modules in the given tier paths.
 
         Returns count of successfully loaded modules.
-        Failed modules are recorded in _failed_modules (silent fallback).
         """
-        self._failed_modules.clear()
         paths = self.discover(tier_paths)
         count = 0
         for path in paths:
-            try:
-                result = self.load(path)
-                if result is not None:
-                    count += 1
-                else:
-                    self._failed_modules.append({
-                        "path": str(path),
-                        "error": "load() returned None (no create_module or bad spec)",
-                        "timestamp": time.time(),
-                    })
-            except Exception as exc:
-                logger.error("[ModuleManager] Failed to load %s: %s", path, exc)
-                self._failed_modules.append({
-                    "path": str(path),
-                    "error": repr(exc),
-                    "timestamp": time.time(),
-                })
+            if self.load(path) is not None:
+                count += 1
         return count
-
-    def get_failed_modules(self) -> List[Dict]:
-        return list(self._failed_modules)
-
-    def degraded_mode(self) -> bool:
-        return len(self._failed_modules) > 0
 
     def unload(self, module_id: str) -> bool:
         """Shutdown and remove a module from the kernel."""

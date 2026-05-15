@@ -1,35 +1,31 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-
-# Virtual environments
+*.pyo
+*.pyd
 .venv/
 venv/
-env/
-
-# Logs and runtime output
-*.log
-output.log
-run*.log
-
-# Secrets / local config
 .env
-.env.*
-!.env.example
 
-# Local persistence / generated memory
+# Logs/runtime
+*.log
+logs/
+run*.log
+output.log
+*.pid
+
+# JAV runtime data
+data/brain/
+data/workspace/
+data/screenshots/
 .jarvis_brain/
-data/memory/
-data/config/
 
-# OS / editor
+# Build
+build/
+dist/
+*.spec
+installer_output/
+
+# OS
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/

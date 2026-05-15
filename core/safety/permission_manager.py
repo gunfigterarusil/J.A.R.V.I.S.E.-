@@ -39,22 +39,13 @@ ACTION_LEVEL_MAP: Dict[str, PermissionLevel] = {
     "read_screen": PermissionLevel.L1_READ_SCREEN,
     "ocr": PermissionLevel.L1_READ_SCREEN,
     "read_file": PermissionLevel.L1_READ_SCREEN,
-    "list_files": PermissionLevel.L1_READ_SCREEN,
-    "search_files": PermissionLevel.L1_READ_SCREEN,
     # L2
     "web_search": PermissionLevel.L2_WEB_SEARCH,
     "web_fetch": PermissionLevel.L2_WEB_SEARCH,
     # L3
     "open_app": PermissionLevel.L3_OPEN_APPS,
-    "open_url": PermissionLevel.L3_OPEN_APPS,
     "switch_window": PermissionLevel.L3_OPEN_APPS,
     "close_app": PermissionLevel.L3_OPEN_APPS,
-    "gui_click": PermissionLevel.L3_OPEN_APPS,
-    "gui_press": PermissionLevel.L3_OPEN_APPS,
-    "gui_scroll": PermissionLevel.L3_OPEN_APPS,
-    "gui_wait": PermissionLevel.L1_READ_SCREEN,
-    "gui_type_text": PermissionLevel.L4_EDIT_FILES,
-    "gui_hotkey": PermissionLevel.L4_EDIT_FILES,
     # L4
     "write_file": PermissionLevel.L4_EDIT_FILES,
     "create_dir": PermissionLevel.L4_EDIT_FILES,

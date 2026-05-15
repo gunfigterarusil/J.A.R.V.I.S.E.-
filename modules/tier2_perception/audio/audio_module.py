@@ -3,7 +3,6 @@ Simulates audio perception (e.g., microphone input, speech detection).
 """
 from __future__ import annotations
 
-import os
 import time
 import logging
 from typing import Dict, Any
@@ -26,7 +25,6 @@ class AudioModule(CognitiveModule):
         )
         self._last_emit = 0.0
         self._period = 1.5  # ~0.67 Hz
-        self._simulation_enabled = os.environ.get("AUDIO_SIMULATION_ENABLED", "false").lower() == "true"
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -37,8 +35,6 @@ class AudioModule(CognitiveModule):
 
     def update(self, dt: float) -> None:
         now = time.time()
-        if not self._simulation_enabled:
-            return
         if now - self._last_emit >= self._period:
             self._last_emit = now
             event = Event(
@@ -62,7 +58,6 @@ class AudioModule(CognitiveModule):
     def to_dict(self) -> Dict[str, Any]:
         base = super().to_dict()
         base["period"] = self._period
-        base["simulation_enabled"] = self._simulation_enabled
         return base
 
 

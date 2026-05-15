@@ -1,589 +1,72 @@
-"""Tier 2 Perception: Screen + GUI Understanding Module (V9.6 MVP).
-
-This module upgrades the old V3 screen reader into a safer "eyes" layer:
-
-  screen_capture_requested / screen_read_requested / screen_understand_requested
-    -> screenshot via mss
-    -> OCR via pytesseract
-    -> active-window probe when available
-    -> GUI/text element extraction
-    -> lightweight visual reasoning + recommended next actions
-    -> screen_parsed + screen_understood
-
-It does not click, type, or control the GUI. V9.6 is understanding-only. Any
-future GUI automation must go through V7 safety and explicit approval gates.
+"""Tier 2: Screen Parser Module
+Captures screen state and emits structured events.
 """
 from __future__ import annotations
 
-import logging
-import os
-import re
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+from typing import Dict, Any
 
 from core import CognitiveModule, CognitiveEvent as Event, Priority
 
 logger = logging.getLogger("screen")
 
-ERROR_PATTERNS = [
-    r"traceback", r"exception", r"error", r"failed", r"fatal", r"warning",
-    r"denied", r"not found", r"no module named", r"permission", r"cannot",
-    r"invalid", r"timeout", r"refused", r"crash", r"segmentation fault",
-]
-BUTTON_WORDS = {
-    "ok", "yes", "no", "cancel", "close", "save", "apply", "send", "run", "start",
-    "stop", "install", "update", "next", "back", "finish", "continue", "retry",
-    "login", "sign in", "submit", "search", "browse", "open", "settings", "copy",
-    "delete", "remove", "download", "upload", "accept", "deny", "approve",
-    "так", "ні", "скасувати", "закрити", "зберегти", "застосувати", "надіслати",
-    "запустити", "встановити", "оновити", "далі", "назад", "продовжити",
-    "пошук", "відкрити", "налаштування", "копіювати", "видалити", "підтвердити",
-}
-
-
-class ScreenReadResult:
-    def __init__(
-        self,
-        request_id: str,
-        ok: bool,
-        screenshot_path: str = "",
-        raw_text: str = "",
-        summary: str = "",
-        important_blocks: Optional[List[str]] = None,
-        likely_context: str = "unknown",
-        active_window: str = "",
-        ui_elements: Optional[List[Dict[str, Any]]] = None,
-        visual_summary: str = "",
-        recommended_actions: Optional[List[str]] = None,
-        error: str = "",
-    ) -> None:
-        self.request_id = request_id
-        self.ok = ok
-        self.screenshot_path = screenshot_path
-        self.raw_text = raw_text
-        self.summary = summary
-        self.important_blocks = important_blocks or []
-        self.likely_context = likely_context
-        self.active_window = active_window
-        self.ui_elements = ui_elements or []
-        self.visual_summary = visual_summary
-        self.recommended_actions = recommended_actions or []
-        self.error = error
-
-    def to_event_data(self) -> Dict[str, Any]:
-        return {
-            "request_id": self.request_id,
-            "ok": self.ok,
-            "screenshot_path": self.screenshot_path,
-            "raw_text": self.raw_text,
-            "summary": self.summary,
-            "important_blocks": self.important_blocks or [],
-            "likely_context": self.likely_context,
-            "active_window": self.active_window,
-            "ui_elements": self.ui_elements or [],
-            "visual_summary": self.visual_summary,
-            "recommended_actions": self.recommended_actions or [],
-            "error": self.error,
-            "timestamp": time.time(),
-        }
-
 
 class ScreenParserModule(CognitiveModule):
-    """V9.6 screen capture + OCR + GUI understanding."""
-
-    MODULE_DESCRIPTION = "V9.6 screen/GUI understanding MVP — OCR, active window, UI blocks and safe recommendations"
-    MODULE_VERSION = "9.6.0"
+    """
+    Tier 2: Screen Parser
+    Periodically emits screen_change events with bounding boxes
+    and detected UI elements.
+    """
 
     def __init__(self) -> None:
         super().__init__(
             module_id="screen_parser",
-            cost={"cpu": 0.35, "gpu": 0.00, "ram": 0.18},
+            cost={"cpu": 0.15, "gpu": 0.05, "ram": 0.10},
         )
-        self.enabled_by_config = True
-        self.auto_watch_enabled = False
-        self.screenshot_dir = ""
-        self.ocr_language = "eng"
-        self.ocr_config = "--psm 6"
-        self.save_screenshots = True
-        self.max_ocr_chars = 7000
-        self.vision_enabled = True
-        self.gui_understanding_enabled = True
-        self.active_window_enabled = True
-        self.max_ui_elements = 40
-        self.min_ui_confidence = 35
-        self.last_result: Dict[str, Any] = {}
+        self._last_emit = 0.0
+        self._period = 1.0  # default 1 Hz
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
-        cfg = getattr(kernel, "config", None)
-        screen_cfg = getattr(cfg, "screen", None)
-        if screen_cfg is not None:
-            self.enabled_by_config = bool(getattr(screen_cfg, "enabled", True))
-            self.auto_watch_enabled = bool(getattr(screen_cfg, "auto_watch_enabled", False))
-            self.screenshot_dir = str(getattr(screen_cfg, "screenshot_dir", "") or "")
-            self.ocr_language = str(getattr(screen_cfg, "ocr_language", "eng") or "eng")
-            self.ocr_config = str(getattr(screen_cfg, "ocr_config", "--psm 6") or "--psm 6")
-            self.save_screenshots = bool(getattr(screen_cfg, "save_screenshots", True))
-            self.max_ocr_chars = int(getattr(screen_cfg, "max_ocr_chars", 7000) or 7000)
-            self.vision_enabled = bool(getattr(screen_cfg, "vision_enabled", True))
-            self.gui_understanding_enabled = bool(getattr(screen_cfg, "gui_understanding_enabled", True))
-            self.active_window_enabled = bool(getattr(screen_cfg, "active_window_enabled", True))
-            self.max_ui_elements = int(getattr(screen_cfg, "max_ui_elements", 40) or 40)
-            self.min_ui_confidence = int(getattr(screen_cfg, "min_ui_confidence", 35) or 35)
-
         kernel.event_bus.register_consumer(
             self.module_id,
-            [
-                "screen_capture_requested",
-                "screen_read_requested",
-                "screen_understand_requested",
-                "gui_understanding_requested",
-                "screen_focus",
-            ],
+            ["screen_focus", "efference_copy"],
         )
-        logger.info("[ScreenParser] V9.6 screen/GUI understanding module initialized")
-
-    async def on_event(self, event: Event) -> None:
-        if event.type in {"screen_capture_requested", "screen_read_requested", "screen_understand_requested", "gui_understanding_requested"}:
-            result = self._read_screen(event)
-            self._emit_result(result, event)
-        elif event.type == "screen_focus":
-            logger.info("[ScreenParser] screen_focus received")
 
     def update(self, dt: float) -> None:
-        # Request-driven by default. Continuous screen watching is intentionally
-        # disabled unless a future permissioned mode enables it.
-        return
-
-    def _read_screen(self, event: Event) -> ScreenReadResult:
-        request_id = str(event.data.get("request_id") or f"screen_{int(time.time())}")
-        if not self.enabled_by_config:
-            return ScreenReadResult(
-                request_id=request_id,
-                ok=False,
-                error="Screen reading is disabled by SCREEN_READING_ENABLED=false.",
-                important_blocks=[],
+        now = time.time()
+        if now - self._last_emit >= self._period:
+            self._last_emit = now
+            event = Event(
+                type="screen_change",
+                data={
+                    "timestamp": now,
+                    "resolution": (1920, 1080),
+                    "elements": [
+                        {"type": "window", "title": "Browser", "bbox": [0, 0, 800, 600]},
+                        {"type": "button", "label": "OK", "bbox": [400, 300, 500, 350]},
+                    ],
+                },
             )
+            if self.kernel:
+                self.kernel.event_bus.emit(event, Priority.COGNITIVE)
+                logger.info("[ScreenParser] screen_change emitted")
 
-        screenshot_path = ""
-        active_window = self._get_active_window_title() if self.active_window_enabled else ""
-        try:
-            screenshot_path = self._capture_screenshot(request_id)
-        except Exception as exc:
-            return ScreenReadResult(
-                request_id=request_id,
-                ok=False,
-                active_window=active_window,
-                error=(
-                    "Could not capture the screen. Install dependencies and ensure a graphical session is available. "
-                    f"Details: {exc}"
-                ),
-                important_blocks=[],
-            )
-
-        try:
-            raw_text = self._ocr_image(screenshot_path)
-        except Exception as exc:
-            return ScreenReadResult(
-                request_id=request_id,
-                ok=False,
-                screenshot_path=screenshot_path,
-                active_window=active_window,
-                error=(
-                    "Screenshot captured, but OCR failed. Install Tesseract OCR and pytesseract. "
-                    "Ubuntu: sudo apt install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ukr. "
-                    f"Details: {exc}"
-                ),
-                important_blocks=[],
-            )
-
-        raw_text = self._normalize_text(raw_text)[: self.max_ocr_chars]
-        parsed = self._parse_text(raw_text)
-        ui_elements: List[Dict[str, Any]] = []
-        visual_summary = ""
-        recommended_actions: List[str] = []
-
-        if self.vision_enabled or self.gui_understanding_enabled:
-            ui_elements = self._extract_ui_elements(screenshot_path)[: self.max_ui_elements]
-            visual_summary = self._summarize_visual_scene(screenshot_path, active_window, ui_elements, parsed)
-            recommended_actions = self._recommend_actions(parsed["likely_context"], parsed["important_blocks"], ui_elements, active_window)
-
-        summary = parsed["summary"]
-        if visual_summary:
-            summary = f"{summary} {visual_summary}"
-        if active_window:
-            summary = f"Active window: {active_window}. {summary}"
-
-        return ScreenReadResult(
-            request_id=request_id,
-            ok=True,
-            screenshot_path=screenshot_path,
-            raw_text=raw_text,
-            summary=summary,
-            important_blocks=parsed["important_blocks"],
-            likely_context=parsed["likely_context"],
-            active_window=active_window,
-            ui_elements=ui_elements,
-            visual_summary=visual_summary,
-            recommended_actions=recommended_actions,
-        )
-
-    def _capture_screenshot(self, request_id: str) -> str:
-        try:
-            import mss  # type: ignore
-            from PIL import Image  # noqa: F401
-        except ImportError as exc:
-            raise RuntimeError("Missing Python packages: pip install mss Pillow") from exc
-
-        if self.screenshot_dir:
-            out_dir = Path(self.screenshot_dir).expanduser()
-        elif self._kernel is not None:
-            out_dir = Path(self._kernel.persistence._base) / "screenshots"
-        else:
-            out_dir = Path.home() / ".jarvis_brain" / "screenshots"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        path = out_dir / f"{request_id}.png"
-
-        with mss.mss() as sct:
-            monitor = sct.monitors[1]
-            shot = sct.grab(monitor)
-            from PIL import Image
-
-            img = Image.frombytes("RGB", shot.size, shot.rgb)
-            img.save(path)
-        return str(path)
-
-    def _ocr_image(self, image_path: str) -> str:
-        try:
-            import pytesseract  # type: ignore
-            from PIL import Image
-        except ImportError as exc:
-            raise RuntimeError("Missing Python packages: pip install pytesseract Pillow") from exc
-
-        tesseract_cmd = os.environ.get("TESSERACT_CMD", "").strip()
-        if tesseract_cmd:
-            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-
-        with Image.open(image_path) as img:
-            return pytesseract.image_to_string(
-                img,
-                lang=self.ocr_language,
-                config=self.ocr_config,
-            )
-
-    def _extract_ui_elements(self, image_path: str) -> List[Dict[str, Any]]:
-        """Extract approximate GUI/text elements from OCR boxes.
-
-        This is not full computer vision yet, but it is much richer than raw OCR:
-        every visible text line gets coordinates, a type guess and confidence.
-        """
-        if not self.gui_understanding_enabled:
-            return []
-        try:
-            import pytesseract  # type: ignore
-            from PIL import Image
-        except Exception:
-            return []
-
-        tesseract_cmd = os.environ.get("TESSERACT_CMD", "").strip()
-        if tesseract_cmd:
-            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-
-        elements: List[Dict[str, Any]] = []
-        try:
-            with Image.open(image_path) as img:
-                data = pytesseract.image_to_data(
-                    img,
-                    lang=self.ocr_language,
-                    config=self.ocr_config,
-                    output_type=pytesseract.Output.DICT,
-                )
-                width, height = img.size
-        except Exception as exc:
-            logger.debug("[ScreenParser] OCR box extraction failed: %s", exc)
-            return []
-
-        grouped: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
-        n = len(data.get("text", []))
-        for i in range(n):
-            text = str(data["text"][i] or "").strip()
-            if not text:
-                continue
-            try:
-                conf = float(data.get("conf", [0])[i])
-            except Exception:
-                conf = 0.0
-            if conf >= 0 and conf < self.min_ui_confidence:
-                continue
-            key = (int(data.get("block_num", [0])[i]), int(data.get("par_num", [0])[i]), int(data.get("line_num", [0])[i]))
-            left = int(data.get("left", [0])[i])
-            top = int(data.get("top", [0])[i])
-            w = int(data.get("width", [0])[i])
-            h = int(data.get("height", [0])[i])
-            item = grouped.setdefault(key, {"texts": [], "conf": [], "x1": left, "y1": top, "x2": left + w, "y2": top + h})
-            item["texts"].append(text)
-            item["conf"].append(conf)
-            item["x1"] = min(item["x1"], left)
-            item["y1"] = min(item["y1"], top)
-            item["x2"] = max(item["x2"], left + w)
-            item["y2"] = max(item["y2"], top + h)
-
-        for item in grouped.values():
-            text = " ".join(item.pop("texts", [])).strip()
-            if not text:
-                continue
-            x1, y1, x2, y2 = item["x1"], item["y1"], item["x2"], item["y2"]
-            bbox = [x1, y1, x2 - x1, y2 - y1]
-            conf_values = [c for c in item.pop("conf", []) if c >= 0]
-            conf = sum(conf_values) / len(conf_values) if conf_values else 0.0
-            etype = self._classify_ui_text(text, bbox, width, height)
-            elements.append({
-                "type": etype,
-                "text": text[:240],
-                "bbox": bbox,
-                "confidence": round(conf, 1),
-                "center": [round(x1 + (x2 - x1) / 2), round(y1 + (y2 - y1) / 2)],
-            })
-
-        def priority(el: Dict[str, Any]) -> Tuple[int, int]:
-            order = {"error_text": 0, "button_or_action": 1, "input_or_label": 2, "menu_or_tab": 3, "text_block": 4}
-            return (order.get(str(el.get("type")), 9), int(el.get("bbox", [0, 0, 0, 0])[1]))
-
-        elements.sort(key=priority)
-        return elements
-
-    def _classify_ui_text(self, text: str, bbox: List[int], width: int, height: int) -> str:
-        t = text.strip().lower()
-        words = len(t.split())
-        x, y, w, h = bbox
-        if re.search("|".join(ERROR_PATTERNS), t, re.IGNORECASE):
-            return "error_text"
-        if t in BUTTON_WORDS or (words <= 3 and 14 <= h <= 70 and w <= width * 0.35):
-            return "button_or_action"
-        if y < height * 0.12 and words <= 6:
-            return "menu_or_tab"
-        if any(sym in t for sym in [":", "=", "_"]) and words <= 6:
-            return "input_or_label"
-        return "text_block"
-
-    def _get_active_window_title(self) -> str:
-        try:
-            import pygetwindow as gw  # type: ignore
-            win = gw.getActiveWindow()
-            if win and getattr(win, "title", ""):
-                return str(win.title).strip()[:180]
-        except Exception:
-            pass
-        return ""
-
-    def _summarize_visual_scene(self, image_path: str, active_window: str, elements: List[Dict[str, Any]], parsed: Dict[str, Any]) -> str:
-        try:
-            from PIL import Image
-            with Image.open(image_path) as img:
-                w, h = img.size
-        except Exception:
-            w = h = 0
-        counts: Dict[str, int] = {}
-        for el in elements:
-            counts[str(el.get("type", "unknown"))] = counts.get(str(el.get("type", "unknown")), 0) + 1
-        if not elements:
-            base = "GUI understanding did not find structured UI elements yet."
-        else:
-            parts = [f"{v} {k.replace('_', ' ')}" for k, v in sorted(counts.items())]
-            base = "GUI understanding found " + ", ".join(parts[:5]) + "."
-        if w and h:
-            base += f" Screenshot size: {w}x{h}."
-        return base
-
-    def _recommend_actions(self, likely_context: str, important: List[str], elements: List[Dict[str, Any]], active_window: str) -> List[str]:
-        actions: List[str] = []
-        joined = "\n".join(important).lower()
-        if "no module named" in joined:
-            actions.append("Install the missing Python package in the project environment, then rerun the command.")
-        if "traceback" in joined or "exception" in joined or "programming error" in likely_context:
-            actions.append("Use the project repair agent: say 'виправ помилки в <папка>' or run /repair <path>.")
-        if "permission" in joined or "denied" in joined:
-            actions.append("Check permissions/path access before retrying; do not raise privileges unless you understand the change.")
-        if "terminal" in likely_context or "command-line" in likely_context:
-            actions.append("Copy the exact error text into chat or let Jarvis read the screen again after rerunning the command.")
-        if any(el.get("type") == "button_or_action" for el in elements):
-            labels = [str(el.get("text")) for el in elements if el.get("type") == "button_or_action"][:6]
-            actions.append("Visible action-like UI labels: " + ", ".join(labels) + ". I can advise, but I will not click automatically in V9.6.")
-        if not actions:
-            actions.append("Ask a focused question like 'що тут не так?', 'що натиснути?', or 'поясни цей екран'.")
-        return actions[:6]
-
-    def _parse_text(self, raw_text: str) -> Dict[str, Any]:
-        text = raw_text.strip()
-        if not text:
-            return {
-                "likely_context": "empty_or_unreadable_screen",
-                "summary": "I captured the screen, but OCR did not find readable text.",
-                "important_blocks": [],
-            }
-
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        important = self._extract_important_blocks(lines)
-        likely_context = self._detect_context(text, important)
-
-        if important:
-            summary = f"I can read the screen. It looks like {likely_context}. Most important: " + " | ".join(important[:3])
-        else:
-            preview = " ".join(lines[:5])[:500]
-            summary = f"I can read the screen. It looks like {likely_context}. Visible text starts with: {preview}"
-
-        return {
-            "likely_context": likely_context,
-            "summary": summary,
-            "important_blocks": important[:12],
-        }
-
-    def _extract_important_blocks(self, lines: List[str]) -> List[str]:
-        rx = re.compile("|".join(ERROR_PATTERNS), re.IGNORECASE)
-        hits: List[str] = []
-        for line in lines:
-            if rx.search(line):
-                cleaned = line[:500]
-                if cleaned not in hits:
-                    hits.append(cleaned)
-        if not hits and lines:
-            hits = lines[:5]
-        return hits
-
-    def _detect_context(self, text: str, important: List[str]) -> str:
-        t = text.lower()
-        if "traceback" in t or "exception" in t or "no module named" in t:
-            return "a programming error or terminal traceback"
-        if "error" in t or "failed" in t or "warning" in t:
-            return "a screen containing warnings or errors"
-        if "http" in t or "localhost" in t or "github" in t:
-            return "a browser or web/developer page"
-        if "def " in text or "class " in text or "import " in text:
-            return "a code editor or source file"
-        if "$ " in text or "> " in text or "sudo " in t or "pip " in t:
-            return "a terminal or command-line window"
-        if any(x in t for x in ["settings", "налаштування", "preferences", "configuration"]):
-            return "a settings/configuration screen"
-        if len(text) > 2000:
-            return "a text-heavy page or document"
-        return "a normal desktop/app screen"
-
-    def _normalize_text(self, text: str) -> str:
-        text = text.replace("\r\n", "\n").replace("\r", "\n")
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
-
-    def _emit_result(self, result: ScreenReadResult, parent: Event) -> None:
-        if not self.kernel:
-            return
-        data = result.to_event_data()
-        if parent.data.get("gui_task_id"):
-            data["gui_task_id"] = parent.data.get("gui_task_id")
-        self.last_result = data
-
-        if result.ok:
-            self.kernel.event_bus.emit(
-                Event(type="screen_captured", data={"request_id": result.request_id, "path": result.screenshot_path}, source_module=self.module_id, causal_parent_id=parent._id),
-                Priority.COGNITIVE,
-            )
-            self.kernel.event_bus.emit(
-                Event(type="ocr_completed", data={"request_id": result.request_id, "chars": len(result.raw_text), "raw_text": result.raw_text}, source_module=self.module_id, causal_parent_id=parent._id),
-                Priority.COGNITIVE,
-            )
-            self.kernel.event_bus.emit(
-                Event(type="screen_parsed", data=data, source_module=self.module_id, causal_parent_id=parent._id),
-                Priority.COGNITIVE,
-            )
-            self.kernel.event_bus.emit(
-                Event(type="screen_understood", data=data, source_module=self.module_id, causal_parent_id=parent._id),
-                Priority.COGNITIVE,
-            )
-            self.kernel.event_bus.emit(
-                Event(
-                    type="sensory_input",
-                    data={
-                        "kind": "screen",
-                        "summary": result.summary,
-                        "raw_text": result.raw_text[:1200],
-                        "ui_elements": result.ui_elements[:12],
-                        "recommended_actions": result.recommended_actions,
-                        "request_id": result.request_id,
-                    },
-                    source_module=self.module_id,
-                    causal_parent_id=parent._id,
-                ),
-                Priority.COGNITIVE,
-            )
-            if parent.data.get("respond", True):
-                self.kernel.event_bus.emit(
-                    Event(
-                        type="response_generated",
-                        data={
-                            "text": self._format_user_response(result),
-                            "source": "screen_parser/v9.6",
-                            "request_id": result.request_id,
-                        },
-                        source_module=self.module_id,
-                        causal_parent_id=parent._id,
-                    ),
-                    Priority.COGNITIVE,
-                )
-        else:
-            self.kernel.event_bus.emit(
-                Event(type="screen_error", data=data, source_module=self.module_id, causal_parent_id=parent._id),
-                Priority.COGNITIVE,
-            )
-            if parent.data.get("respond", True):
-                self.kernel.event_bus.emit(
-                    Event(
-                        type="response_generated",
-                        data={"text": f"I could not read/understand the screen yet: {result.error}", "source": "screen_parser/v9.6", "request_id": result.request_id},
-                        source_module=self.module_id,
-                        causal_parent_id=parent._id,
-                    ),
-                    Priority.COGNITIVE,
-                )
-
-    def _format_user_response(self, result: ScreenReadResult) -> str:
-        blocks = result.important_blocks or []
-        elements = result.ui_elements or []
-        element_lines = []
-        for el in elements[:8]:
-            label = str(el.get("text", ""))[:80]
-            etype = str(el.get("type", "ui"))
-            bbox = el.get("bbox", [])
-            element_lines.append(f"- {etype}: {label} @ {bbox}")
-        action_lines = [f"- {a}" for a in (result.recommended_actions or [])[:6]]
-
-        parts = [f"I analyzed the screen. Context: {result.likely_context}."]
-        if result.active_window:
-            parts.append(f"Active window: {result.active_window}.")
-        if blocks:
-            parts.append("\nImportant visible text:\n" + "\n".join(f"- {block}" for block in blocks[:6]))
-        if element_lines:
-            parts.append("\nDetected UI/text elements:\n" + "\n".join(element_lines))
-        if action_lines:
-            parts.append("\nSuggested next steps:\n" + "\n".join(action_lines))
-        parts.append(f"\nScreenshot saved: {result.screenshot_path}")
-        return "\n".join(parts)
+    async def on_event(self, event: Event) -> None:
+        if event.type == "screen_focus":
+            # Increase frequency when screen is in focus
+            self._period = 0.5
+            logger.info("[ScreenParser] focus detected, increasing frequency")
+        elif event.type == "efference_copy":
+            # Predicted screen change, suppress brief noise
+            logger.info("[ScreenParser] efference_copy received, suppressing predicted")
 
     def to_dict(self) -> Dict[str, Any]:
         base = super().to_dict()
-        base.update({
-            "v9_6_gui_understanding": True,
-            "enabled_by_config": self.enabled_by_config,
-            "vision_enabled": self.vision_enabled,
-            "gui_understanding_enabled": self.gui_understanding_enabled,
-            "active_window_enabled": self.active_window_enabled,
-            "ocr_language": self.ocr_language,
-            "last_result_ok": self.last_result.get("ok"),
-            "last_summary": self.last_result.get("summary", "")[:180],
-            "last_ui_elements": len(self.last_result.get("ui_elements", []) or []),
-            "last_active_window": self.last_result.get("active_window", ""),
-        })
+        base["period"] = self._period
         return base
 
 
-def create_module() -> ScreenParserModule:
+def create_module():
     return ScreenParserModule()
