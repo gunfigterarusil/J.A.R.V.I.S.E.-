@@ -26,7 +26,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 try:
-    from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header
+    from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
     from fastapi.responses import HTMLResponse
     from fastapi.staticfiles import StaticFiles
     from fastapi.middleware.cors import CORSMiddleware
@@ -36,7 +36,7 @@ except ImportError:
 
 from core.kernel import Kernel, KernelAPI
 from core.event_bus import Priority, CognitiveEvent
-from config import KernelConfig
+from config import KernelConfig, config
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -152,15 +152,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-cors_origins = [o.strip() for o in os.environ.get("WEB_CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000").split(",") if o.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=config.web_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+def require_api_token(authorization: Optional[str] = Header(default=None)) -> None:
+    """Protect control endpoints when WEB_UI_API_TOKEN is configured.
+
+    Local development remains frictionless when the token is empty.
+    For any exposed server, set WEB_UI_API_TOKEN and send:
+    Authorization: Bearer <token>
+    """
+    token = config.web_api_token
+    if not token:
+        return
+    expected = f"Bearer {token}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="Missing or invalid API token")
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -192,7 +205,7 @@ async def get_modules():
 
 
 @app.post("/api/modules/{module_id}/toggle")
-async def toggle_module(module_id: str):
+async def toggle_module(module_id: str, _auth: None = Depends(require_api_token)):
     if not kernel_api:
         raise HTTPException(503, "Kernel not ready")
     success = kernel_api.toggle_module(module_id)
@@ -202,7 +215,7 @@ async def toggle_module(module_id: str):
 
 
 @app.post("/api/focus")
-async def set_focus(body: dict):
+async def set_focus(body: dict, _auth: None = Depends(require_api_token)):
     if not kernel_api:
         raise HTTPException(503, "Kernel not ready")
     items = body.get("focus", [])
@@ -220,10 +233,7 @@ async def get_events():
 
 
 @app.post("/api/event/emit")
-async def emit_event(body: dict, x_jav_token: str | None = Header(default=None)):
-    token = os.environ.get("WEB_UI_API_TOKEN", "")
-    if token and x_jav_token != token:
-        raise HTTPException(401, "Invalid or missing WEB_UI_API_TOKEN")
+async def emit_event(body: dict, _auth: None = Depends(require_api_token)):
     if not kernel_api:
         raise HTTPException(503, "Kernel not ready")
     event_type = body.get("type", "custom")
@@ -235,7 +245,7 @@ async def emit_event(body: dict, x_jav_token: str | None = Header(default=None))
 
 
 @app.post("/api/shutdown")
-async def shutdown():
+async def shutdown(_auth: None = Depends(require_api_token)):
     if kernel_api:
         asyncio.create_task(_delayed_shutdown())
     return {"success": True, "message": "Shutdown initiated"}
@@ -273,6 +283,8 @@ async def websocket_endpoint(websocket: WebSocket):
                             "user_utterance", {"text": text}, Priority.REALTIME
                         )
                 elif action == "emit_event" and kernel_api:
+                    # WebSocket control actions are intended for local/dev dashboard usage.
+                    # Do not expose the dashboard publicly without a reverse proxy/VPN.
                     kernel_api.emit_event(
                         msg.get("event_type", "custom"),
                         msg.get("data", {}),
@@ -290,5 +302,10 @@ async def websocket_endpoint(websocket: WebSocket):
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("BRAIN_PORT", 8000))
-    uvicorn.run("interfaces.web_ui.app:app", host="0.0.0.0", port=port, reload=False)
+    cfg = KernelConfig()
+    uvicorn.run(
+        "interfaces.web_ui.app:app",
+        host=cfg.web_host,
+        port=cfg.web_port,
+        reload=cfg.ws_reload,
+    )

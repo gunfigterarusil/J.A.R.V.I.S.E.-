@@ -39,6 +39,8 @@ class ValidationResult:
     deny_reason: str
     risk: RiskAssessment
     rule_violated: Optional[str]
+    friendly_reason: str = ""     # human-readable reason for UI
+    rule_type: str = "technical"  # "technical" | "ethical"
 
 
 class ActionFirewall:
@@ -67,14 +69,16 @@ class ActionFirewall:
         source = event.source_module
 
         # 1. Constitution (hard rules — unbypassable)
-        ok, reason = self._constitution.check(action_type, event.data)
-        if not ok:
+        const_result = self._constitution.check(action_type, event.data)
+        if not const_result.allowed:
             result = ValidationResult(
                 allowed=False,
                 requires_confirmation=False,
-                deny_reason=reason,
+                deny_reason=const_result.friendly_reason or const_result.reason,
                 risk=self._risk.assess(action_type, event.data),
-                rule_violated=reason,
+                rule_violated=const_result.rule_name,
+                friendly_reason=const_result.friendly_reason,
+                rule_type=const_result.rule_type,
             )
             self._record(result, action_type, source, event.data, "denied")
             return result
@@ -116,7 +120,8 @@ class ActionFirewall:
             return result
 
         # 5. Confirmation required?
-        if risk.requires_confirmation and action_type not in self._perm._granted_actions:
+        approved_once = bool(event.data.get("_approved_once", False))
+        if risk.requires_confirmation and not approved_once and action_type not in self._perm._granted_actions:
             result = ValidationResult(
                 allowed=False,
                 requires_confirmation=True,
@@ -205,6 +210,8 @@ class ActionFirewall:
             risk_score=result.risk.score,
             rule_violated=result.rule_violated,
             confirm_required=result.requires_confirmation,
+            rule_type=getattr(result, "rule_type", "technical"),
+            friendly_reason=getattr(result, "friendly_reason", ""),
         )
         self._audit.record(entry)
         if decision == "denied":
