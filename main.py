@@ -254,7 +254,7 @@ async def run_with_chat(kernel: Kernel) -> None:
                 print("  /system, /proactive, /daily-summary")
                 print("  /see, /vision, /gui")
                 print("  /task <goal>, /tasks, /task-step, /task-report")
-                print("  /actions, /ls, /read <file>, /write <file> :: <content>, /run <cmd>")
+                print("  /workspace, /actions, /ls, /read <file>, /write <file> :: <content>, /run <cmd>")
                 print("  /repair <path>, /apply-repair <proposal_id>")
                 print("  /skills, /skill <query>, /knowledge")
                 print("  /safety [0..6], /approve <id>, /deny <id>\n")
@@ -561,7 +561,12 @@ async def run_with_chat(kernel: Kernel) -> None:
                 await wait_action_response(timeout=60.0)
                 continue
 
-            if lower in {"/actions", "/action-status", "/workspace"}:
+            if lower in {"/workspace", "/workspace-info"}:
+                workspace = Path(getattr(getattr(kernel.config, "actions", None), "workspace_path", "~/jarvis_workspace")).expanduser()
+                print(f"Jarvis workspace: {workspace}\nSafe file actions (/ls, /read, /write, /repair) operate inside this folder. Change ACTION_WORKSPACE_PATH in Settings/.env or import/copy your project into the workspace.\n")
+                continue
+
+            if lower in {"/actions", "/action-status"}:
                 kernel.event_bus.emit(
                     CognitiveEvent(type="action_status_requested", data={"respond": True}, source_module="cli_chat"),
                     Priority.COGNITIVE,

@@ -59,7 +59,7 @@ data/brain/logs/desktop_crash.log
 ~/.jarvis_brain/logs/desktop_crash.log
 ```
 
-Нормально, якщо doctor показує `FAIL` для optional речей, які ти ще не ставив, наприклад `Piper`, `Ollama`, `sounddevice`, `faster-whisper`. Це ламає тільки відповідну функцію, а не все ядро.
+Нормально, якщо doctor показує `WARN` для optional/external речей, які ти ще не ставив, наприклад `Piper`, `Ollama`, `sounddevice`, `faster-whisper`, `mss` або `pyautogui`. Це ламає тільки відповідну функцію, а не все ядро. `FAIL` тепер означає саме критичну проблему required-компонента.
 
 
 
@@ -85,6 +85,30 @@ run_desktop.bat
 
 ```bash
 python main.py --desktop
+```
+
+### Workspace / sandbox
+
+JAV спеціально не працює з усім диском напряму. Безпечні файлові дії (`/ls`, `/read`, `/write`, `/repair`) працюють тільки в workspace. Перевірити його можна командою:
+
+```bash
+/workspace
+```
+
+У desktop UI відкрий **Home → Workspace**, де можна:
+
+- відкрити поточний workspace;
+- змінити workspace;
+- імпортувати папку проєкту в workspace.
+
+Це зроблено для безпеки: Jarvis не має випадково змінювати файли поза дозволеною папкою.
+
+### Memory Browser
+
+У вкладці **Memory** тепер є базовий браузер SQLite-памʼяті: можна переглядати останні записи, шукати по тексту й дивитись payload. Для пошуку з чату також працює:
+
+```bash
+/recall <тема>
 ```
 
 Перший запуск відкриє setup wizard, якщо `.jav_setup_complete` ще не створено. Там можна вибрати portable/installed режим, папку памʼяті, workspace і профіль моделей.

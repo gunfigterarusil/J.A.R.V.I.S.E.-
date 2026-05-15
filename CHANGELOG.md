@@ -1,5 +1,15 @@
 # Changelog
 
+## V15.7 — Quality & UX Stabilization
+
+- Doctor now separates REQUIRED failures from optional/external WARN items, so missing voice/OCR/Ollama dependencies no longer look like full startup failure.
+- Desktop Doctor tab now shows optional warnings with a yellow marker and reports “Core OK” when only optional components are missing.
+- Added a real Workspace block in the desktop Home tab: open workspace, change workspace, and import project into workspace.
+- Added explicit `/workspace` guidance in chat mode so users understand that file actions only operate inside the sandbox workspace.
+- Replaced the Memory tab placeholder with a basic SQLite memory browser: recent rows, search, and detail preview.
+- Added filesystem sanity checks in System Monitor so unrealistic virtual-disk sizes are shown as “unknown” instead of absurd GB values.
+- Cleaned the release output from `__pycache__`, `.pyc`, `.log`, and runtime data.
+
 ## V15.4 — Safety Constitution + Modern Desktop Shell Polish
 
 - Confirmed and documented the Asimov-inspired Safety Constitution layer.

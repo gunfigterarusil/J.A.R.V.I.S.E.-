@@ -77,13 +77,29 @@ class SystemMonitorModule(CognitiveModule):
         try:
             path.mkdir(parents=True, exist_ok=True) if not path.exists() else None
             usage = shutil.disk_usage(str(path))
+            total_gb = usage.total / (1024 ** 3) if usage.total else 0.0
+            used_gb = usage.used / (1024 ** 3) if usage.total else 0.0
+            free_gb = usage.free / (1024 ** 3) if usage.total else 0.0
+            # Some virtual/sandbox filesystems report absurd capacities. Do not
+            # show scary/incorrect alerts based on them.
+            if total_gb <= 0 or total_gb > 10_000_000:
+                return {
+                    "path": str(path),
+                    "exists": path.exists(),
+                    "unknown": True,
+                    "total_gb": "unknown",
+                    "used_gb": "unknown",
+                    "free_gb": "unknown",
+                    "used_percent": None,
+                    "detail": "filesystem reported unrealistic capacity",
+                }
             used_pct = (usage.used / usage.total * 100.0) if usage.total else 0.0
             return {
                 "path": str(path),
                 "exists": path.exists(),
-                "total_gb": round(usage.total / (1024 ** 3), 2),
-                "used_gb": round(usage.used / (1024 ** 3), 2),
-                "free_gb": round(usage.free / (1024 ** 3), 2),
+                "total_gb": round(total_gb, 2),
+                "used_gb": round(used_gb, 2),
+                "free_gb": round(free_gb, 2),
                 "used_percent": round(used_pct, 1),
             }
         except Exception as exc:
@@ -258,6 +274,8 @@ class SystemMonitorModule(CognitiveModule):
             d = snap.get(key) or {}
             if "error" in d:
                 lines.append(f"- {label}: error {d.get('error')}")
+            elif d.get("unknown"):
+                lines.append(f"- {label}: unknown ({d.get('detail', 'unsupported filesystem')})")
             else:
                 lines.append(f"- {label}: {d.get('used_percent', 'n/a')}% used, free {d.get('free_gb', 'n/a')} GB")
         lines.append(f"- Internet: {(snap.get('internet') or {}).get('ok')}")

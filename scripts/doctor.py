@@ -181,18 +181,35 @@ def run_checks(root: Optional[Path] = None) -> List[DoctorCheck]:
 # Original CLI entry point (unchanged behaviour)
 # ---------------------------------------------------------------------------
 
-def check(name: str, ok: bool, detail: str = "") -> bool:
-    mark = "OK" if ok else "FAIL"
+def check(name: str, ok: bool, detail: str = "", severity: str = "required") -> bool:
+    """Print a doctor result. Only required failures should fail the doctor.
+
+    severity:
+      required  -> [OK]/[FAIL] and contributes to exit code
+      optional  -> [OK]/[WARN] for feature-specific dependencies
+      external  -> [OK]/[WARN] for external tools such as Ollama/Tesseract
+      info      -> [INFO] informational row
+    """
+    sev = (severity or "required").lower()
+    if ok:
+        mark = "OK"
+    elif sev in {"optional", "external"}:
+        mark = "WARN"
+    elif sev == "info":
+        mark = "INFO"
+    else:
+        mark = "FAIL"
     print(f"[{mark}] {name}{': ' + detail if detail else ''}")
-    return ok
+    return ok if sev == "required" else True
 
 
-def optional_import(module: str, feature: str) -> None:
+def optional_import(module: str, feature: str, install_hint: str = "") -> None:
     try:
         importlib.import_module(module)
-        check(feature, True, module)
+        check(feature, True, module, severity="optional")
     except Exception as exc:
-        check(feature, False, f"{module} not available ({exc})")
+        hint = f"; install: {install_hint}" if install_hint else ""
+        check(feature, False, f"{module} not available ({exc}){hint}", severity="optional")
 
 
 def main() -> int:
@@ -228,22 +245,22 @@ def main() -> int:
 
     print("\nOptional features:")
     optional_import("tkinter", "Desktop UI / Tkinter")
-    optional_import("psutil", "System monitor")
-    optional_import("mss", "Screen capture")
-    optional_import("PIL", "Pillow image support")
-    optional_import("pytesseract", "OCR Python binding")
-    optional_import("pyautogui", "GUI automation")
-    optional_import("sounddevice", "Microphone input")
-    optional_import("faster_whisper", "Whisper STT")
-    optional_import("pyttsx3", "pyttsx3 fallback TTS")
+    optional_import("psutil", "System monitor", "pip install psutil")
+    optional_import("mss", "Screen capture", "pip install mss")
+    optional_import("PIL", "Pillow image support", "pip install Pillow")
+    optional_import("pytesseract", "OCR Python binding", "pip install pytesseract")
+    optional_import("pyautogui", "GUI automation", "pip install pyautogui")
+    optional_import("sounddevice", "Microphone input", "pip install sounddevice")
+    optional_import("faster_whisper", "Whisper STT", "pip install faster-whisper")
+    optional_import("pyttsx3", "pyttsx3 fallback TTS", "pip install pyttsx3")
 
     print("\nExternal tools:")
     check("Tesseract executable", shutil.which("tesseract") is not None,
-          shutil.which("tesseract") or "install tesseract-ocr")
+          shutil.which("tesseract") or "install tesseract-ocr; required only for OCR", severity="external")
     check("Piper executable", shutil.which("piper") is not None,
-          shutil.which("piper") or "optional; set PIPER_EXECUTABLE/PIPER_MODEL_PATH")
+          shutil.which("piper") or "optional; set PIPER_EXECUTABLE/PIPER_MODEL_PATH", severity="external")
     check("Ollama executable", shutil.which("ollama") is not None,
-          shutil.which("ollama") or "optional; needed for local models")
+          shutil.which("ollama") or "optional; needed only for local Ollama models", severity="external")
 
     print("\nModel router:")
     try:
@@ -259,8 +276,8 @@ def main() -> int:
             detail = f"{info.get('provider', 'n/a')}/{info.get('model', '')}"
             if info.get("detail"):
                 detail += f" — {info.get('detail')}"
-            check(f"Model role {role}", bool(info.get("available")), detail)
-        check("At least one real model provider", any(p != "null" for p in (status.get("available") or [])), ", ".join(status.get("available") or []))
+            check(f"Model role {role}", bool(info.get("available")), detail, severity="external")
+        check("At least one real model provider", any(p != "null" for p in (status.get("available") or [])), ", ".join(status.get("available") or []) or "none configured; chat will use NullProvider", severity="external")
     except Exception as exc:
         ok_all &= check("model router diagnostics", False, repr(exc))
 
@@ -297,9 +314,9 @@ def main() -> int:
 
     print("\nResult:")
     if ok_all:
-        print("Core runtime looks usable. Optional FAIL items only affect their specific features.")
+        print("Core runtime looks usable. WARN items are optional/external and only affect their specific features.")
         return 0
-    print("Some required checks failed. See messages above.")
+    print("Some REQUIRED checks failed. WARN items are optional/external and do not block core startup.")
     return 1
 
 

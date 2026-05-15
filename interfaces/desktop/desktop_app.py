@@ -16,8 +16,10 @@ import subprocess
 import sys
 import threading
 import time
+import sqlite3
+import json
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, TclError
+from tkinter import ttk, scrolledtext, messagebox, filedialog, TclError
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -355,6 +357,13 @@ class DesktopApp:
         ]:
             ttk.Button(top, text=text, command=cmd, style="Accent.TButton" if "Diagnose" in text else "TButton").pack(fill=tk.X, pady=3)
 
+        workspace = self._section(tab, "Workspace", "Safe file actions only operate inside this folder. Import/change it before asking JAV to read or repair a project.")
+        self.workspace_label = ttk.Label(workspace, text=self._workspace_path_text(), style="Muted.Card.TLabel", wraplength=360)
+        self.workspace_label.pack(anchor="w", pady=(0, 6))
+        ttk.Button(workspace, text="📂 Open workspace", command=self.open_workspace).pack(fill=tk.X, pady=3)
+        ttk.Button(workspace, text="🔁 Change workspace", command=self.change_workspace).pack(fill=tk.X, pady=3)
+        ttk.Button(workspace, text="📥 Import project into workspace", command=self.import_project_to_workspace).pack(fill=tk.X, pady=3)
+
         voice = self._section(tab, "Voice companion", "Start the separate voice loop when microphone/STT/TTS are configured.")
         self.voice_status_label = ttk.Label(voice, text="Voice: stopped", style="Muted.Card.TLabel")
         self.voice_status_label.pack(anchor="w", pady=(0, 6))
@@ -414,16 +423,26 @@ class DesktopApp:
 
     def _build_memory_tab(self, tab: ScrollableFrame) -> None:
         self._label(tab, "Memory and skills", True)
-        for text, cmd in [
-            ("Memory status", self.memory_status), ("Recall...", lambda: self._prefill("згадай ")),
-            ("Skill library", lambda: self._send_text("покажи навички")),
-            ("Find skill...", lambda: self._prefill("знайди навичку ")),
-            ("Knowledge graph", lambda: self._send_text("покажи граф знань")),
-            ("Learn skill...", lambda: self._prefill("запам'ятай навичку назва :: крок 1; крок 2; крок 3")),
-        ]:
-            self._button(tab, text, cmd)
-        self._label(tab, "Memory browser placeholder", True)
-        ttk.Label(tab.body, text="V15 keeps this panel ready for a future searchable memory table. Use /recall now.", style="Muted.TLabel", wraplength=360).pack(anchor="w", padx=4, pady=4)
+        quick = self._section(tab, "Quick memory actions", "Search long-term memory, check storage and manage skills.")
+        ttk.Button(quick, text="Memory status", command=self.memory_status).pack(fill=tk.X, pady=3)
+        ttk.Button(quick, text="Skill library", command=lambda: self._send_text("покажи навички")).pack(fill=tk.X, pady=3)
+        ttk.Button(quick, text="Knowledge graph", command=lambda: self._send_text("покажи граф знань")).pack(fill=tk.X, pady=3)
+
+        browser = self._section(tab, "Memory browser", "Search SQLite/vector memory without using slash commands.")
+        row = ttk.Frame(browser, style="Card.TFrame")
+        row.pack(fill=tk.X, pady=(4, 6))
+        self.memory_search_var = tk.StringVar()
+        entry = ttk.Entry(row, textvariable=self.memory_search_var)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        entry.bind("<Return>", lambda _e: self.search_memory_browser())
+        ttk.Button(row, text="Search", command=self.search_memory_browser).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(row, text="Refresh recent", command=self.refresh_recent_memory).pack(side=tk.RIGHT, padx=(6, 0))
+        self.memory_list = tk.Listbox(browser, height=12, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
+        self.memory_list.pack(fill=tk.BOTH, expand=True, pady=(4, 6))
+        self.memory_detail = scrolledtext.ScrolledText(browser, height=8, wrap=tk.WORD, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
+        self.memory_detail.pack(fill=tk.BOTH, expand=True)
+        self.memory_list.bind("<<ListboxSelect>>", lambda _e: self.show_selected_memory())
+        self._memory_rows = []
 
     def _build_models_tab(self, tab: ScrollableFrame) -> None:
         from interfaces.desktop.model_status_panel import ModelStatusPanel
@@ -781,8 +800,10 @@ class DesktopApp:
             self.understand_gui(); return
         if lower in {"/sleep", "/dream", "/consolidate", "/memory-consolidate"}:
             self.sleep_cycle(); return
-        if lower in {"/actions", "/workspace", "/action-status"}:
+        if lower in {"/actions", "/action-status"}:
             self.action_status(); return
+        if lower in {"/workspace", "/workspace-info"}:
+            self._append("system", "Current workspace: " + self._workspace_path_text() + "\nSafe file actions only operate inside this folder. Use Home → Change workspace or Import project into workspace."); return
         if lower in {"/memory", "/memory-status", "/storage"}:
             self.memory_status(); return
         if lower in {"/models", "/model-status", "/model-health", "/model-profile"}:
@@ -854,6 +875,127 @@ class DesktopApp:
 
     def memory_status(self) -> None:
         self.emit("memory_status_requested", {"respond": True}, Priority.COGNITIVE)
+
+    def _workspace_path_text(self) -> str:
+        try:
+            actions = getattr(self.cfg, "actions", None)
+            return str(Path(getattr(actions, "workspace_path", "~/jarvis_workspace")).expanduser())
+        except Exception:
+            return "~/jarvis_workspace"
+
+    def _set_workspace_label(self) -> None:
+        try:
+            self.workspace_label.configure(text=self._workspace_path_text())
+        except Exception:
+            pass
+
+    def open_workspace(self) -> None:
+        path = Path(self._workspace_path_text()).expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception as exc:
+            self._append("system", f"Workspace: {path}\nCould not open file manager: {exc}")
+
+    def change_workspace(self) -> None:
+        selected = filedialog.askdirectory(title="Choose JAV workspace folder")
+        if not selected:
+            return
+        path = Path(selected).expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        try:
+            if getattr(self.cfg, "actions", None) is not None:
+                self.cfg.actions.workspace_path = str(path)
+            if self.kernel is not None and getattr(self.kernel.config, "actions", None) is not None:
+                self.kernel.config.actions.workspace_path = str(path)
+            os.environ["ACTION_WORKSPACE_PATH"] = str(path)
+            self._set_workspace_label()
+            self._append("system", f"Workspace changed to: {path}\nRestart JAV to make every subsystem use this path. Current action executor will use it live when possible.")
+        except Exception as exc:
+            messagebox.showerror("Workspace", str(exc))
+
+    def import_project_to_workspace(self) -> None:
+        src = filedialog.askdirectory(title="Choose project folder to copy into workspace")
+        if not src:
+            return
+        workspace = Path(self._workspace_path_text()).expanduser()
+        workspace.mkdir(parents=True, exist_ok=True)
+        src_path = Path(src).expanduser()
+        target = workspace / src_path.name
+        try:
+            import shutil
+            if target.exists():
+                if not messagebox.askyesno("Import project", f"{target} already exists. Merge/overwrite changed files?"):
+                    return
+                shutil.copytree(src_path, target, dirs_exist_ok=True)
+            else:
+                shutil.copytree(src_path, target)
+            self._append("system", f"Imported project into workspace: {target}\nNow you can ask: виправ помилки в {src_path.name}")
+        except Exception as exc:
+            messagebox.showerror("Import project", str(exc))
+
+    def _memory_db_path(self) -> Path:
+        try:
+            return Path(getattr(self.cfg, "persistence_dir", "~/.jarvis_brain")).expanduser() / "longterm_memory.sqlite3"
+        except Exception:
+            return Path("~/.jarvis_brain").expanduser() / "longterm_memory.sqlite3"
+
+    def refresh_recent_memory(self) -> None:
+        self._load_memory_rows("")
+
+    def search_memory_browser(self) -> None:
+        query = self.memory_search_var.get().strip()
+        self._load_memory_rows(query)
+        if query:
+            self.emit("memory_search_requested", {"query_text": query, "top_k": 8, "respond": True}, Priority.COGNITIVE)
+
+    def _load_memory_rows(self, query: str = "") -> None:
+        db = self._memory_db_path()
+        self._memory_rows = []
+        self.memory_list.delete(0, tk.END)
+        self.memory_detail.delete("1.0", tk.END)
+        if not db.exists():
+            self.memory_detail.insert(tk.END, f"Memory database not found yet:\n{db}\nTalk to JAV or run memory status first.")
+            return
+        try:
+            con = sqlite3.connect(str(db))
+            con.row_factory = sqlite3.Row
+            if query:
+                like = f"%{query}%"
+                rows = con.execute("SELECT id, memory_type, text, payload_json, importance, timestamp, source FROM memories WHERE text LIKE ? OR source LIKE ? ORDER BY timestamp DESC LIMIT 50", (like, like)).fetchall()
+            else:
+                rows = con.execute("SELECT id, memory_type, text, payload_json, importance, timestamp, source FROM memories ORDER BY timestamp DESC LIMIT 50").fetchall()
+            con.close()
+            for row in rows:
+                item = dict(row)
+                self._memory_rows.append(item)
+                snippet = str(item.get("text") or "").replace("\n", " ")[:96]
+                self.memory_list.insert(tk.END, f"{item.get('memory_type')}  imp={item.get('importance')}  {snippet}")
+            if not rows:
+                self.memory_detail.insert(tk.END, "No memory rows found for this query.")
+        except Exception as exc:
+            self.memory_detail.insert(tk.END, f"Could not read memory DB: {exc}")
+
+    def show_selected_memory(self) -> None:
+        self.memory_detail.delete("1.0", tk.END)
+        try:
+            sel = self.memory_list.curselection()
+            if not sel:
+                return
+            row = self._memory_rows[sel[0]]
+            payload = row.get("payload_json") or ""
+            try:
+                payload = json.dumps(json.loads(payload), ensure_ascii=False, indent=2)[:4000]
+            except Exception:
+                payload = str(payload)[:4000]
+            self.memory_detail.insert(tk.END, f"ID: {row.get('id')}\nType: {row.get('memory_type')}\nSource: {row.get('source')}\nImportance: {row.get('importance')}\nTimestamp: {row.get('timestamp')}\n\nText:\n{row.get('text')}\n\nPayload:\n{payload}")
+        except Exception as exc:
+            self.memory_detail.insert(tk.END, f"Could not show memory row: {exc}")
 
     def task_status(self) -> None:
         self.emit("task_chain_status_requested", {"respond": True}, Priority.COGNITIVE)

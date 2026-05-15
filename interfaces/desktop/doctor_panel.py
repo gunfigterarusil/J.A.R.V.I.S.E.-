@@ -85,10 +85,19 @@ class DoctorPanel(ttk.Frame):
             self._run_btn.configure(state="normal")
             return
 
-        passed = sum(1 for c in checks if c.passed)
-        total = len(checks)
-        color = "#3fb950" if passed == total else ("#f0883e" if passed > total // 2 else "#f85149")
-        self._status_lbl.configure(text=f"{passed}/{total} passed", foreground=color)
+        required = [c for c in checks if getattr(c, "category", "required") == "required"]
+        required_failed = [c for c in required if not c.passed]
+        warnings = [c for c in checks if getattr(c, "category", "required") != "required" and not c.passed]
+        if required_failed:
+            color = "#f85149"
+            text = f"{len(required_failed)} required problem(s), {len(warnings)} optional warning(s)"
+        elif warnings:
+            color = "#f0883e"
+            text = f"Core OK, {len(warnings)} optional warning(s)"
+        else:
+            color = "#3fb950"
+            text = "All checks passed"
+        self._status_lbl.configure(text=text, foreground=color)
 
         # Scrollable container
         canvas = tk.Canvas(self._results_frame, highlightthickness=0,
@@ -127,8 +136,13 @@ class DoctorPanel(ttk.Frame):
             row = ttk.Frame(body)
             row.pack(fill=tk.X, padx=4, pady=1)
 
-            icon_text = "✓" if chk.passed else "✗"
-            icon_color = "#3fb950" if chk.passed else "#f85149"
+            is_required = getattr(chk, "category", "required") == "required"
+            if chk.passed:
+                icon_text, icon_color = "✓", "#3fb950"
+            elif is_required:
+                icon_text, icon_color = "✗", "#f85149"
+            else:
+                icon_text, icon_color = "!", "#f0883e"
             ttk.Label(row, text=icon_text, foreground=icon_color,
                       width=3, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
 
