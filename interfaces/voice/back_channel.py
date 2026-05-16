@@ -167,17 +167,33 @@ def _classify(text: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def pick_phrase(user_text: str, language: str = "uk") -> str:
+def pick_phrase(user_text: str, language: str = "uk", patience: float = 0.5) -> str:
     """Pick a natural back-channel phrase for the given user utterance.
 
     Args:
         user_text: The transcribed user speech.
         language:  Language code — 'uk', 'en', 'ru'. Falls back to 'en'.
+        patience:  0.0–1.0 from self-learning heuristics.
+                   Low (< 0.35) → terse single-word phrases.
+                   High (> 0.70) → warmer, slightly longer acknowledgments.
 
     Returns:
         A short acknowledgment string ready to be passed to TTS.
     """
     phrases = _LANG_MAP.get(language, _PHRASES_EN)
     category = _classify(user_text)
-    pool = phrases.get(category, phrases["default"])
-    return random.choice(pool)
+
+    # Patience-aware phrase selection: build a pool biased toward short/long phrases.
+    if patience < 0.35:
+        # Terse: prefer shortest phrases (≤ 10 chars) from any category.
+        candidates = [p for p in phrases.get("default", []) if len(p) <= 12]
+        if not candidates:
+            candidates = phrases.get("default", ["..."])
+        return random.choice(candidates)
+    elif patience > 0.70 and category in ("question", "long"):
+        # Warm: use the richer question/long pool.
+        pool = phrases.get(category, phrases["default"])
+        return random.choice(pool)
+    else:
+        pool = phrases.get(category, phrases["default"])
+        return random.choice(pool)

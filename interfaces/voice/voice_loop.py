@@ -55,6 +55,7 @@ class VoiceLoop:
         self.unmute_phrases = self._phrase_set(getattr(cfg, "unmute_phrases", "unmute,говори,можеш говорити"))
         self.back_channel_enabled = bool(getattr(cfg, "back_channel_enabled", True))
         self.back_channel_language = str(getattr(cfg, "back_channel_language", "uk") or "uk")
+        self._patience: float = 0.5  # updated from self_learning heuristics_updated events
         self._vad_stop = threading.Event()
 
         self._running = False
@@ -263,7 +264,7 @@ class VoiceLoop:
         """Emit a short acknowledgment phrase while the LLM is thinking (Feature A)."""
         if not self.back_channel_enabled or self.muted or self.tts_backend == "none":
             return
-        phrase = pick_phrase(user_text, self.back_channel_language)
+        phrase = pick_phrase(user_text, self.back_channel_language, patience=self._patience)
         self.kernel.event_bus.emit(
             Event(
                 type="tts_say",
@@ -356,6 +357,8 @@ class VoiceLoop:
             elif event.type == "tts_status":
                 data = event.data or {}
                 self.muted = bool(data.get("muted", self.muted))
+            elif event.type == "heuristics_updated":
+                self._patience = float((event.data or {}).get("patience", self._patience))
 
         self.kernel.event_bus.emit = _voice_tap  # type: ignore[method-assign]
 

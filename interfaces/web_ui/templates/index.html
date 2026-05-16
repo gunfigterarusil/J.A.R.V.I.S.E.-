@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jarvis Brain — Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=19">
 </head>
 <body>
     <div class="app-container">
@@ -12,7 +12,7 @@
         <header class="dashboard-header">
             <div class="header-left">
                 <h1 class="header-title">Jarvis Brain</h1>
-                <span class="header-version">v2.0.0</span>
+                <span class="header-version">v18</span>
             </div>
             <div class="header-center">
                 <div class="status-indicator" id="status-indicator">
@@ -30,6 +30,7 @@
         <nav class="tab-bar">
             <button class="tab-btn active" data-tab="brain" onclick="window.pca.switchTab('brain')">BRAIN</button>
             <button class="tab-btn" data-tab="chat" onclick="window.pca.switchTab('chat')">CHAT</button>
+            <button class="tab-btn" data-tab="voice" onclick="window.pca.switchTab('voice')">VOICE</button>
         </nav>
 
         <!-- ====== BRAIN TAB ====== -->
@@ -157,6 +158,40 @@
                                     </div>
                                     <span class="hormone-value" id="val-serotonin">0.5</span>
                                 </div>
+                                <div class="hormone-item">
+                                    <span class="hormone-name adrenaline">Adrenaline</span>
+                                    <div class="hormone-track">
+                                        <div class="hormone-fill adrenaline" id="bar-adrenaline" style="width:10%"></div>
+                                    </div>
+                                    <span class="hormone-value" id="val-adrenaline">0.1</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- System Monitor -->
+                        <div class="section-divider"></div>
+                        <div class="system-section">
+                            <h3 class="section-subtitle">System</h3>
+                            <div class="sys-grid">
+                                <div class="sys-item">
+                                    <span class="sys-label">CPU</span>
+                                    <div class="gauge-bar-bg">
+                                        <div class="gauge-bar-fill" id="bar-cpu" style="width:0%"></div>
+                                    </div>
+                                    <span class="sys-value" id="val-cpu">--%</span>
+                                </div>
+                                <div class="sys-item">
+                                    <span class="sys-label">RAM</span>
+                                    <div class="gauge-bar-bg">
+                                        <div class="gauge-bar-fill gauge-warning" id="bar-ram" style="width:0%"></div>
+                                    </div>
+                                    <span class="sys-value" id="val-ram">--%</span>
+                                </div>
+                                <div class="sys-item sys-net-item">
+                                    <span class="sys-label">Net</span>
+                                    <span class="net-dot" id="net-dot"></span>
+                                    <span class="sys-value" id="val-net">—</span>
+                                </div>
                             </div>
                         </div>
 
@@ -198,6 +233,34 @@
                             <div class="monologue-stream" id="monologue-stream">
                                 <span class="text-muted">...</span>
                             </div>
+                        </div>
+
+                        <!-- Self-Model -->
+                        <div class="self-model-container">
+                            <div class="self-model-header">Self-Model</div>
+                            <div class="sm-grid">
+                                <div class="sm-item">
+                                    <span class="sm-label">Confidence</span>
+                                    <div class="sm-bar-bg"><div class="sm-bar-fill" id="bar-sm-confidence" style="width:50%"></div></div>
+                                </div>
+                                <div class="sm-item">
+                                    <span class="sm-label">Reliability</span>
+                                    <div class="sm-bar-bg"><div class="sm-bar-fill" id="bar-sm-reliability" style="width:50%"></div></div>
+                                </div>
+                                <div class="sm-item">
+                                    <span class="sm-label">Autonomy</span>
+                                    <div class="sm-bar-bg"><div class="sm-bar-fill" id="bar-sm-autonomy" style="width:50%"></div></div>
+                                </div>
+                                <div class="sm-item">
+                                    <span class="sm-label">Maturity</span>
+                                    <div class="sm-bar-bg"><div class="sm-bar-fill" id="bar-sm-maturity" style="width:50%"></div></div>
+                                </div>
+                                <div class="sm-item">
+                                    <span class="sm-label">Goal Rate</span>
+                                    <div class="sm-bar-bg"><div class="sm-bar-fill sm-success" id="bar-sm-goalrate" style="width:0%"></div></div>
+                                </div>
+                            </div>
+                            <div class="sm-role" id="sm-role-text">—</div>
                         </div>
 
                         <!-- Event Log -->
@@ -242,9 +305,15 @@
             <div class="chat-layout">
                 <div class="chat-messages" id="chat-messages">
                     <div class="chat-welcome">
-                        <div class="chat-welcome-icon">&#x1F9E0;</div>
-                        <div class="chat-welcome-text">Jarvis Brain is running.<br>Start a conversation below.</div>
+                        <div class="chat-welcome-icon">&#x26A1;</div>
+                        <div class="chat-welcome-text">JARVIS online.<br>How can I assist?</div>
                     </div>
+                </div>
+                <div class="chat-thinking" id="chat-thinking" style="display:none">
+                    <span class="thinking-dot"></span>
+                    <span class="thinking-dot"></span>
+                    <span class="thinking-dot"></span>
+                    <span class="thinking-label">Thinking...</span>
                 </div>
                 <div class="chat-input-bar">
                     <div class="chat-mode-indicator">
@@ -255,6 +324,95 @@
                     <textarea id="chat-input" placeholder="Talk to Jarvis... (Enter to send, Shift+Enter for newline)" rows="2"></textarea>
                     <button id="chat-send" class="btn btn-primary">Send</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- ====== VOICE TAB ====== -->
+        <div class="tab-content" id="tab-voice">
+            <div class="voice-dashboard">
+
+                <!-- Wake Word -->
+                <section class="voice-card">
+                    <div class="voice-card-header">Wake Word</div>
+                    <div class="wake-ring-wrapper">
+                        <div class="wake-ring" id="wake-ring">
+                            <div class="wake-ring-inner">
+                                <span class="wake-icon" id="wake-icon">&#x1F634;</span>
+                                <span class="wake-state" id="wake-state">sleeping</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="voice-meta-row">
+                        <span class="voice-meta-key">Model</span>
+                        <span class="voice-meta-val" id="wake-model">—</span>
+                    </div>
+                    <div class="voice-meta-row">
+                        <span class="voice-meta-key">Muted</span>
+                        <span class="voice-meta-val" id="voice-muted">—</span>
+                    </div>
+                </section>
+
+                <!-- Voice Modulation -->
+                <section class="voice-card">
+                    <div class="voice-card-header">
+                        Voice Modulation
+                        <span class="mod-badge" id="mod-badge">OFF</span>
+                    </div>
+                    <div class="mod-row">
+                        <span class="mod-label">Speed</span>
+                        <div class="mod-track-wrap">
+                            <div class="mod-track">
+                                <div class="mod-fill mod-fill-speed" id="mod-speed-fill" style="width:43%"></div>
+                                <div class="mod-center-mark"></div>
+                            </div>
+                            <div class="mod-range-labels"><span>0.70×</span><span>1.00×</span><span>1.40×</span></div>
+                        </div>
+                        <span class="mod-value" id="mod-speed-val">1.00×</span>
+                    </div>
+                    <div class="mod-row">
+                        <span class="mod-label">Stability</span>
+                        <div class="mod-track-wrap">
+                            <div class="mod-track">
+                                <div class="mod-fill mod-fill-stab" id="mod-stab-fill" style="width:40%"></div>
+                            </div>
+                            <div class="mod-range-labels"><span>0.20</span><span>0.50</span><span>0.95</span></div>
+                        </div>
+                        <span class="mod-value" id="mod-stab-val">0.50</span>
+                    </div>
+                    <div class="voice-meta-row" style="margin-top:var(--spacing-sm)">
+                        <span class="voice-meta-key">Backend</span>
+                        <span class="voice-meta-val" id="mod-backend">—</span>
+                    </div>
+                </section>
+
+                <!-- Ambient Watch -->
+                <section class="voice-card">
+                    <div class="voice-card-header">Ambient Watch</div>
+                    <div class="ambient-status-row">
+                        <span class="ambient-dot" id="ambient-dot"></span>
+                        <span class="ambient-status-text" id="ambient-status-text">inactive</span>
+                    </div>
+                    <div class="voice-meta-row">
+                        <span class="voice-meta-key">Interval</span>
+                        <span class="voice-meta-val" id="ambient-interval">—</span>
+                    </div>
+                    <div class="ambient-last-event" id="ambient-last-event">No changes detected</div>
+                </section>
+
+                <!-- Companion -->
+                <section class="voice-card">
+                    <div class="voice-card-header">Companion</div>
+                    <div class="companion-name" id="companion-name">—</div>
+                    <div class="companion-rel-row">
+                        <span class="voice-meta-key">Relationship</span>
+                        <div class="companion-rel-track">
+                            <div class="companion-rel-fill" id="companion-rel-fill" style="width:0%"></div>
+                        </div>
+                        <span class="mod-value" id="companion-rel-val">0%</span>
+                    </div>
+                    <div class="companion-note" id="companion-note">No profile yet</div>
+                </section>
+
             </div>
         </div>
 
@@ -329,6 +487,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=19"></script>
 </body>
 </html>

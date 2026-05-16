@@ -133,6 +133,14 @@ class ScreenParserModule(CognitiveModule):
         self._last_proactive_ts: float = 0.0
         self._last_error_hash: str = ""
         self._last_error_ts: float = 0.0
+        # Per-content dedup so the same app switch / context is not re-announced
+        # after the global cooldown expires.
+        self._last_switch_window: str = ""
+        self._last_switch_ts: float = 0.0
+        self._last_ctx_announced: str = ""
+        self._last_ctx_announced_ts: float = 0.0
+        _SWITCH_DEDUP_TTL: float = 180.0
+        _CTX_DEDUP_TTL: float = 120.0
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -585,6 +593,27 @@ class ScreenParserModule(CognitiveModule):
         if new_errors:
             self._last_error_hash = error_hash
             self._last_error_ts = now
+
+        # Dedup app_switched — suppress if same window was already announced recently.
+        if "app_switched" in changed_reasons:
+            win = result.active_window or ""
+            if win == self._last_switch_window and now - self._last_switch_ts < 180.0:
+                changed_reasons = [r for r in changed_reasons if r != "app_switched"]
+            else:
+                self._last_switch_window = win
+                self._last_switch_ts = now
+
+        # Dedup context_changed — suppress if same context string was announced recently.
+        if "context_changed" in changed_reasons:
+            ctx = result.likely_context or ""
+            if ctx == self._last_ctx_announced and now - self._last_ctx_announced_ts < 120.0:
+                changed_reasons = [r for r in changed_reasons if r != "context_changed"]
+            else:
+                self._last_ctx_announced = ctx
+                self._last_ctx_announced_ts = now
+
+        if not changed_reasons:
+            return
 
         importance = 0.7 if "error_detected" in changed_reasons else 0.4
         suggestion = result.recommended_actions[0] if result.recommended_actions else ""

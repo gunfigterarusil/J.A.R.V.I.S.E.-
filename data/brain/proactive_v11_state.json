@@ -1,0 +1,28 @@
+{
+  "events": [
+    {
+      "kind": "ollama_down",
+      "severity": "info",
+      "title": "Ollama is not responding",
+      "detail": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+      "importance": 0.55,
+      "timestamp": 1778882436.3669934,
+      "source_event": "system_alert",
+      "source_module": "system_monitor"
+    },
+    {
+      "kind": "ollama_down",
+      "severity": "info",
+      "title": "Ollama is not responding",
+      "detail": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+      "importance": 0.55,
+      "timestamp": 1778909362.1277888,
+      "source_event": "system_alert",
+      "source_module": "system_monitor"
+    }
+  ],
+  "last_notify_by_kind": {
+    "ollama_down": 1778909362.1277888
+  },
+  "last_daily_summary": 1778882395.6002073
+}

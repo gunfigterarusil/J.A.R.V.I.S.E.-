@@ -44,3 +44,6 @@ psutil
 # V15 optional desktop shell enhancements
 pystray
 plyer
+
+# V18 modern desktop UI
+customtkinter>=5.2

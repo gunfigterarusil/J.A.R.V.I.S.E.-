@@ -90,11 +90,17 @@ class EventBus:
 
     TRACE_SIZE = 200  # last N events kept for debugging
 
+    _QUEUE_MAXSIZE: dict = {
+        Priority.REALTIME:   500,
+        Priority.COGNITIVE:  1000,
+        Priority.BACKGROUND: 2000,
+    }
+
     def __init__(self) -> None:
         self.queues: dict[Priority, asyncio.PriorityQueue] = {
-            Priority.REALTIME: asyncio.PriorityQueue(),
-            Priority.COGNITIVE: asyncio.PriorityQueue(),
-            Priority.BACKGROUND: asyncio.PriorityQueue(),
+            Priority.REALTIME:   asyncio.PriorityQueue(maxsize=self._QUEUE_MAXSIZE[Priority.REALTIME]),
+            Priority.COGNITIVE:  asyncio.PriorityQueue(maxsize=self._QUEUE_MAXSIZE[Priority.COGNITIVE]),
+            Priority.BACKGROUND: asyncio.PriorityQueue(maxsize=self._QUEUE_MAXSIZE[Priority.BACKGROUND]),
         }
         # module_id → set of event types it wants
         self._consumers: dict[str, set[str]] = {}
@@ -126,8 +132,18 @@ class EventBus:
     def emit(self, event: CognitiveEvent, priority: Priority) -> None:
         self.trace.append(event)
         q = self.queues[priority]
-        # tuple: (priority_val, timestamp, unique_id, event)
-        q.put_nowait((priority.value, event.timestamp, event._id, event))
+        try:
+            q.put_nowait((priority.value, event.timestamp, event._id, event))
+        except asyncio.QueueFull:
+            if priority == Priority.BACKGROUND:
+                logger.debug("[EventBus] BACKGROUND queue full (%d); dropping %s", q.maxsize, event.type)
+            else:
+                logger.warning("[EventBus] %s queue full (%d); dropping event type=%s src=%s",
+                               priority.name, q.maxsize, event.type, event.source_module)
+
+    def queue_sizes(self) -> dict[str, int]:
+        """Return current queue depths for monitoring."""
+        return {p.name: self.queues[p].qsize() for p in Priority}
 
     def emit_after(self, event: CognitiveEvent, delay: float,
                    priority: Priority = Priority.COGNITIVE) -> None:

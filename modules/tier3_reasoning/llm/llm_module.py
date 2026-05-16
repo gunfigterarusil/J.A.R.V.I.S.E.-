@@ -57,6 +57,7 @@ class LLMModule(CognitiveModule):
         self._self_reflection: str = ""
         self._consolidation_context: dict = {}
         self._user_profile: dict = {}        # Phase 2: injected from UserProfileEngine
+        self._heuristics: dict = {}          # Phase 5: injected from SelfLearningModule
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -86,6 +87,7 @@ class LLMModule(CognitiveModule):
                 "dream_narrative",
                 "consolidation_lesson",
                 "user_profile_updated",   # Phase 2: adaptive persona
+                "heuristics_updated",     # Phase 5: self-learning behavioral calibration
             ],
         )
 
@@ -134,6 +136,8 @@ class LLMModule(CognitiveModule):
                 self._consolidation_context["recent_lessons"] = lessons[-6:]
         elif et == "user_profile_updated":
             self._user_profile = dict(event.data or {})
+        elif et == "heuristics_updated":
+            self._heuristics = dict(event.data or {})
 
     async def _handle_user_utterance(self, event: Event) -> None:
         text = str(event.data.get("text", "") or "").strip()
@@ -401,6 +405,20 @@ class LLMModule(CognitiveModule):
                 refs = (self._self_context or {}).get("shared_references") or []
                 if refs:
                     prompt += f" Shared context between you two: {', '.join(str(r) for r in refs[:3])}."
+
+        # Phase 5 — Self-learning behavioral calibration
+        if self._heuristics:
+            h = self._heuristics
+            prompt += (
+                f" Behavioral calibration (learned from outcomes):"
+                f" risk_tolerance={h.get('risk_tolerance', 0.5):.2f},"
+                f" exploration={h.get('exploration_rate', 0.5):.2f},"
+                f" patience={h.get('patience', 0.5):.2f},"
+                f" optimism={h.get('optimism', 0.5):.2f}."
+                " Let these shape your tone and approach: low risk_tolerance → prefer cautious,"
+                " proven recommendations; high exploration → offer creative alternatives;"
+                " low patience → be concise; high optimism → frame positively."
+            )
 
         return prompt
 

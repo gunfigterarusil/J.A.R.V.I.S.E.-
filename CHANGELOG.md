@@ -1,5 +1,37 @@
 # Changelog
 
+## V18.3 — UI Overhaul: Web + Desktop Redesign
+
+### Web UI (browser interface)
+
+- **Bugfix — гормони завжди 0.5:** `hormone_module.to_dict()` кладе дані в `base["hormone_levels"]`, але JS читав `mod.dopamine` (flat). Виправлено: `const hl = mod.hormone_levels || mod` перед читанням значень.
+- **Bugfix — цілі завжди порожні:** `goal_module.to_dict()` кладе цілі в `base["active_stack"]` (об'єкти з `.description`, `.priority`), але JS читав `mod.active_goals` (undefined). Виправлено: `mod.active_stack || mod.active_goals || []`.
+- **Bugfix — modulation bars:** `updateModulationBars()` тепер отримує `hormoneMod.hormone_levels || hormoneMod` замість raw module dict.
+- **Нова панель System Monitor:** показує реальний CPU%, RAM% та статус мережі (зелена/червона крапка). Дані з `system_monitor.last_snapshot.cpu_percent`, `.memory.used_percent`, `.internet`.
+- **Нова панель Self-Model:** показує `confidence`, `reliability`, `autonomy_level`, `cognitive_maturity`, `goal_success_rate` та `communication_style` з модуля `self_model`.
+- **Glassmorphism redesign:** панелі отримали `backdrop-filter: blur(12px)`, rgba-фони, hover glow; header — градієнтна cyan-лінія; кнопки — box-shadow при hover; custom scrollbar 5px.
+- **Chat thinking indicator:** три пульсуючі крапки з'являються одразу після відправки повідомлення (до відповіді LLM), зникають при `response_generated`.
+- **Cache busting:** `style.css?v=19`, `app.js?v=19`.
+
+### Desktop app
+
+- **Повний переробка на customtkinter:** `interfaces/desktop/desktop_app.py` переписано з нуля на `customtkinter>=5.2`. Tkinter/ttk більше не використовується для UI-шару.
+- Розроблено helper `_btn_kwargs(accent, danger)` для уніфікованих стилів кнопок.
+- `InfoCard` і `StatusPill` переписані як `ctk.CTkFrame` subclasses з `text_color` замість `foreground`.
+- Всі `ttk.Frame` → `ctk.CTkFrame(corner_radius=8)`.
+- Всі `ttk.Label` → `ctk.CTkLabel(text_color=...)`.
+- Всі `ttk.Button` → `ctk.CTkButton` з rounded corners та hover glow.
+- Всі `ttk.Entry` → `ctk.CTkEntry` з placeholder_text.
+- `scrolledtext.ScrolledText` → `ctk.CTkTextbox` для chat, логів, голосового виводу, approval detail, memory detail.
+- `ttk.Notebook` → `ctk.CTkTabview` зі стилізованим segmented button.
+- `ttk.Combobox` → `ctk.CTkOptionMenu` для фільтру логів.
+- `ScrollableFrame` (custom class) → `ctk.CTkScrollableFrame` всередині потрібних вкладок.
+- `tk.Listbox` збережено для `approval_list` і `memory_list` (потребують `.curselection()`).
+- `task_feed` і `event_list` (display-only) → `ctk.CTkTextbox` readonly; insert/trim оновлено під CTkTextbox API.
+- Виправлено `status_label.configure(foreground=...)` → `text_color=...` (degraded mode).
+- Додано `customtkinter>=5.2` до `requirements.txt`.
+- Вся бізнес-логіка (`send_message`, `_route_text`, всі action/voice/memory/approval методи) збережена без змін.
+
 ## V18.2 — Model Discovery + Provider Catalog
 
 - Added `scripts/model_discovery.py` with unified model discovery across Ollama, OpenAI-compatible APIs, NVIDIA NIM, Anthropic, Gemini and llama.cpp.
@@ -28,6 +60,29 @@
 - Added safer ambient perception defaults: baseline-first behavior, sensitive-screen skip, cooldowns and privacy controls.
 - Made emotional TTS modulation subtler by default (`VOICE_EMOTIONAL_TTS_STRENGTH=0.35`).
 - Hardened file logging so bad log permissions no longer crash startup.
+
+## V17 — Voice Companion Mode
+
+- Added acoustic wake word detection via openWakeWord (`interfaces/voice/wake_word_detector.py`): JAV wakes on "Hey Jarvis", listens, responds, then returns to sleep — Phase 3A.
+- Added ambient screen perception: silent background capture every 8 s keeps world model current without interrupting the user — Phase 3B.
+- Added change detection in `screen_parser_module.py`: app switch, context change, or detected error → `proactive_event` → JAV speaks proactively.
+- Added emotional voice modulation: emotion + hormone state drives TTS speed (0.70–1.40×) and ElevenLabs stability (0.20–0.95) in real time — Phase 3C.
+  - Speed: `arousal×0.25 + frustration×0.12 + adrenaline×0.30 − cognitive_load×0.10`
+  - Stability: `oxytocin+0.20 − |arousal|×0.15 − cortisol×0.10 + valence×0.05`
+- New env vars: `VOICE_WAKE_WORD_DETECTOR`, `VOICE_WAKE_WORD_MODEL`, `VOICE_WAKE_WORD_THRESHOLD`, `VOICE_WAKE_WORD_ACK`.
+- New env vars: `SCREEN_AMBIENT_INTERVAL`, `SCREEN_AMBIENT_SPEECH_GAP`, `SCREEN_AMBIENT_PROACTIVE`.
+- New env vars: `VOICE_EMOTIONAL_TTS`, `VOICE_EMOTIONAL_TTS_STRENGTH` (0.0 = off, 1.0 = full).
+
+## V16 — Character System
+
+- Added UserProfileEngine (`modules/tier1_essential/user_profile/`): learns user name, preferred language, communication style, interests, active projects across conversations — Phase 2.
+- Added PersonaEvolution in SelfModel: relationship depth grows with every turn, shared references, adapted style, rotating persona evolution log.
+- User profile injected into every LLM system prompt; responses personalise automatically after the first few sessions.
+- Profile persisted locally in `~/.jarvis_brain/user_profile.json` — no cloud sync, data is yours.
+- Added back-channel responses: JAV says "Розумію..." while the LLM is thinking — eliminates the silent-wait dead zone — Phase 1.
+- Added speech-start interrupt: user starting to speak immediately stops ongoing TTS — Phase 1.
+- Added LLM streaming with sentence-split TTS: first sentence spoken ≈0.5 s after generation starts — Phase 1.
+- Streaming added to all LLM providers: Ollama, OpenAI-compatible, Anthropic, Gemini, llama.cpp.
 
 ## V15.7 — Quality & UX Stabilization
 

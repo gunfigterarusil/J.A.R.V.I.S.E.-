@@ -1,12 +1,7 @@
-"""V18 Modern Assistant Shell for JAV / Jarvis Brain Core.
+"""V18 Modern Assistant Shell for JAV / Jarvis Brain Core (customtkinter edition).
 
-V18 keeps the zero-heavy-dependency Tkinter foundation, but turns the desktop
-window into a modern assistant cockpit:
-- premium dark dashboard with live status cards and HUD chips
-- calmer chat layout with quick scenario buttons
-- dedicated panels for models, memory, voice, workspace, doctor and logs
-- better visual hierarchy for daily use, not only debugging
-- still pure Tkinter so portable builds remain lightweight and reliable
+Rewritten with customtkinter for rounded widgets, native dark mode, and a
+modern Electron-like look. All business logic preserved from the original.
 """
 from __future__ import annotations
 
@@ -19,9 +14,11 @@ import time
 import sqlite3
 import json
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog, TclError
+from tkinter import messagebox, filedialog, TclError
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+import customtkinter as ctk
 
 from config import KernelConfig
 from core.kernel import Kernel, KernelAPI
@@ -32,15 +29,15 @@ from interfaces.desktop.settings_window import SettingsWindow
 from interfaces.desktop.notifier import DesktopNotifier
 from interfaces.desktop.tray import AssistantTray
 
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("dark-blue")
 
-# Modern assistant-shell palette.  Still pure Tkinter/ttk, but the UI now behaves
-# like a product dashboard instead of a technical debug window.
 UI = {
     "bg": "#080c16",
     "panel": "#101827",
     "panel_2": "#162033",
     "panel_3": "#1c2940",
-    "input": "#060914",
+    "input": "#0d1424",
     "border": "#26344e",
     "text": "#f8fafc",
     "muted": "#9aa8bd",
@@ -55,58 +52,57 @@ UI = {
 }
 
 
-class ScrollableFrame(ttk.Frame):
-    def __init__(self, master, *args, **kwargs):
-        super().__init__(master, *args, **kwargs)
-        self.canvas = tk.Canvas(self, highlightthickness=0, bg=UI["bg"])
-        self.scroll = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.body = ttk.Frame(self.canvas)
-        self.window_id = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.scroll.set)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.body.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.window_id, width=e.width))
+def FONT(size: int = 10, bold: bool = False) -> ctk.CTkFont:
+    return ctk.CTkFont(family="Segoe UI", size=size, weight="bold" if bold else "normal")
 
 
-class InfoCard(ttk.Frame):
+def MONO(size: int = 9) -> ctk.CTkFont:
+    return ctk.CTkFont(family="Consolas", size=size)
+
+
+def _btn_kwargs(accent: bool = False, danger: bool = False) -> dict:
+    if accent:
+        return dict(fg_color=UI["blue"], hover_color="#7dd3fc", text_color="#020617")
+    if danger:
+        return dict(fg_color=UI["red"], hover_color="#fda4af", text_color="#020617")
+    return dict(fg_color=UI["panel_2"], hover_color=UI["border"], text_color=UI["text"])
+
+
+class InfoCard(ctk.CTkFrame):
     def __init__(self, master, title: str, value: str = "—", subtitle: str = "") -> None:
-        super().__init__(master, style="Card.TFrame", padding=10)
-        self.title = ttk.Label(self, text=title, style="Muted.Card.TLabel", font=("Segoe UI", 9))
-        self.value = ttk.Label(self, text=value, style="Card.TLabel", font=("Segoe UI", 13, "bold"))
-        self.subtitle = ttk.Label(self, text=subtitle, style="Muted.Card.TLabel", font=("Segoe UI", 8), wraplength=210)
-        self.title.pack(anchor="w")
-        self.value.pack(anchor="w", pady=(2, 0))
-        self.subtitle.pack(anchor="w", pady=(2, 0))
-        self._last_value: str = value
-        self._last_subtitle: str = subtitle
+        super().__init__(master, fg_color=UI["panel"], corner_radius=8)
+        self._title_lbl = ctk.CTkLabel(self, text=title, text_color=UI["muted"], font=FONT(9))
+        self._value_lbl = ctk.CTkLabel(self, text=value, text_color=UI["text"], font=FONT(13, True))
+        self._sub_lbl = ctk.CTkLabel(self, text=subtitle, text_color=UI["muted"], font=FONT(8), wraplength=200)
+        self._title_lbl.pack(anchor="w", padx=10, pady=(8, 0))
+        self._value_lbl.pack(anchor="w", padx=10, pady=(2, 0))
+        self._sub_lbl.pack(anchor="w", padx=10, pady=(2, 8))
+        self._last_value = value
+        self._last_subtitle = subtitle
 
     def set(self, value: str, subtitle: str = "") -> None:
         if value == self._last_value and subtitle == self._last_subtitle:
             return
         self._last_value = value
         self._last_subtitle = subtitle
-        self.value.configure(text=value)
-        self.subtitle.configure(text=subtitle)
+        self._value_lbl.configure(text=value)
+        self._sub_lbl.configure(text=subtitle)
 
 
-
-
-class StatusPill(ttk.Frame):
-    """Small live status chip used in the header HUD."""
-
+class StatusPill(ctk.CTkFrame):
     def __init__(self, master, label: str, value: str = "—", accent: str = "blue") -> None:
-        super().__init__(master, style="Pill.TFrame", padding=(10, 6))
+        super().__init__(master, fg_color=UI["panel_3"], corner_radius=10)
         self._accent = accent
-        self.label = ttk.Label(self, text=label.upper(), style="Muted.Pill.TLabel", font=("Segoe UI", 7, "bold"))
-        self.value = ttk.Label(self, text=value, style="Pill.TLabel", font=("Segoe UI", 9, "bold"))
-        self.label.pack(anchor="w")
-        self.value.pack(anchor="w")
+        self._label_lbl = ctk.CTkLabel(self, text=label.upper(), text_color=UI["dim"], font=FONT(7, True))
+        self._value_lbl = ctk.CTkLabel(self, text=value, text_color=UI["text"], font=FONT(9, True))
+        self._label_lbl.pack(anchor="w", padx=10, pady=(6, 0))
+        self._value_lbl.pack(anchor="w", padx=10, pady=(0, 6))
 
     def set(self, value: str, accent: str | None = None) -> None:
-        self.value.configure(text=value)
+        self._value_lbl.configure(text=value)
         if accent:
             self._accent = accent
+
 
 class DesktopApp:
     def __init__(self, cfg: KernelConfig | None = None) -> None:
@@ -122,7 +118,11 @@ class DesktopApp:
         self._model_status_ts: float = 0.0
         self._model_status_refreshing: bool = False
         self._task_event_count: int = 0
-        self.notifier = DesktopNotifier(enabled=os.environ.get("DESKTOP_NOTIFICATIONS_ENABLED", "true").lower() == "true")
+        self._event_list_lines: int = 0
+        self._task_feed_lines: int = 0
+        self.notifier = DesktopNotifier(
+            enabled=os.environ.get("DESKTOP_NOTIFICATIONS_ENABLED", "true").lower() == "true"
+        )
         self.tray: Optional[AssistantTray] = None
         self.kernel: Optional[Kernel] = None
         self.api: Optional[KernelAPI] = None
@@ -130,22 +130,20 @@ class DesktopApp:
         self._kernel_boot_queue: "queue.Queue[tuple[str, object]]" = queue.Queue()
 
         try:
-            self.root = tk.Tk()
+            self.root = ctk.CTk()
         except TclError as exc:
             raise RuntimeError(
                 "Desktop UI could not start because Tk cannot open a display. "
-                "On Windows, run this from a normal desktop session. On Linux, start it inside an X11/Wayland session, "
-                "or use: python main.py --chat / --web / --service."
+                "On Windows, run this from a normal desktop session. On Linux, start it inside an "
+                "X11/Wayland session, or use: python main.py --chat / --web / --service."
             ) from exc
 
         self.root.title("JAV — Personal AI Assistant Shell")
         self.root.geometry(os.environ.get("DESKTOP_WINDOW_GEOMETRY", "1440x900"))
         self.root.minsize(1180, 720)
+        self.root.configure(fg_color=UI["bg"])
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
-        # Build the window first, then boot the cognitive kernel in a background thread.
-        # This prevents the common "black console with two startup lines" feeling when
-        # module loading, optional network checks, or model health checks take a while.
         self._build_ui()
         self._bind_shortcuts()
         self._start_optional_tray()
@@ -155,7 +153,6 @@ class DesktopApp:
         self.status_label.configure(text="booting kernel…")
         self._start_kernel_boot()
         self._tick_ui()
-
 
     # ------------------------------------------------------------------
     # Kernel boot
@@ -204,54 +201,23 @@ class DesktopApp:
     # UI build
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        self.root.configure(bg=UI["bg"])
-        style = ttk.Style(self.root)
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
-
-        style.configure("TFrame", background=UI["bg"])
-        style.configure("Card.TFrame", background=UI["panel"], relief="flat")
-        style.configure("SoftCard.TFrame", background=UI["panel_2"], relief="flat")
-        style.configure("Hero.TFrame", background=UI["panel_2"], relief="flat")
-        style.configure("Pill.TFrame", background=UI["panel_3"], relief="flat")
-        style.configure("TLabel", background=UI["bg"], foreground=UI["text"])
-        style.configure("Card.TLabel", background=UI["panel"], foreground=UI["text"])
-        style.configure("SoftCard.TLabel", background=UI["panel_2"], foreground=UI["text"])
-        style.configure("Muted.Card.TLabel", background=UI["panel"], foreground=UI["muted"])
-        style.configure("Muted.SoftCard.TLabel", background=UI["panel_2"], foreground=UI["muted"])
-        style.configure("Hero.TLabel", background=UI["panel_2"], foreground=UI["text"])
-        style.configure("Muted.Hero.TLabel", background=UI["panel_2"], foreground=UI["muted"])
-        style.configure("Pill.TLabel", background=UI["panel_3"], foreground=UI["text"])
-        style.configure("Muted.Pill.TLabel", background=UI["panel_3"], foreground=UI["dim"])
-        style.configure("Muted.TLabel", background=UI["bg"], foreground=UI["muted"])
-        style.configure("TButton", padding=(10, 7), background=UI["panel_2"], foreground=UI["text"])
-        style.map("TButton", background=[("active", UI["border"]), ("pressed", UI["border"])])
-        style.configure("Accent.TButton", padding=(12, 8), background=UI["blue"], foreground="#020617")
-        style.map("Accent.TButton", background=[("active", "#7dd3fc"), ("pressed", "#0ea5e9")])
-        style.configure("Danger.TButton", padding=(10, 7), background=UI["red"], foreground="#020617")
-        style.configure("TNotebook", background=UI["bg"], borderwidth=0, tabmargins=(0, 4, 0, 0))
-        style.configure("TNotebook.Tab", padding=(14, 8), background=UI["panel"], foreground=UI["muted"])
-        style.map(
-            "TNotebook.Tab",
-            background=[("selected", UI["panel_2"]), ("active", UI["border"])],
-            foreground=[("selected", UI["text"]), ("active", UI["text"])],
-        )
-        style.configure("Horizontal.TProgressbar", background=UI["blue"], troughcolor=UI["panel"], borderwidth=0)
-
-        outer = ttk.Frame(self.root, padding=14)
-        outer.pack(fill=tk.BOTH, expand=True)
+        outer = ctk.CTkFrame(self.root, fg_color=UI["bg"])
+        outer.pack(fill="both", expand=True, padx=14, pady=14)
 
         self._build_header(outer)
         self._build_status_cards(outer)
 
-        main = ttk.Panedwindow(outer, orient=tk.HORIZONTAL)
-        main.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-        left = ttk.Frame(main)
-        right = ttk.Frame(main, width=440)
-        main.add(left, weight=5)
-        main.add(right, weight=2)
+        main = ctk.CTkFrame(outer, fg_color=UI["bg"])
+        main.pack(fill="both", expand=True, pady=(10, 0))
+        main.columnconfigure(0, weight=5)
+        main.columnconfigure(1, weight=2)
+        main.rowconfigure(0, weight=1)
+
+        left = ctk.CTkFrame(main, fg_color=UI["bg"])
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+
+        right = ctk.CTkFrame(main, fg_color=UI["bg"])
+        right.grid(row=0, column=1, sticky="nsew")
 
         self._build_chat(left)
         self._build_right_tabs(right)
@@ -269,132 +235,163 @@ class DesktopApp:
         except Exception:
             pass
 
-    def _build_header(self, parent: ttk.Frame) -> None:
-        header = ttk.Frame(parent, style="Hero.TFrame", padding=(18, 14))
-        header.pack(fill=tk.X)
+    def _build_header(self, parent: ctk.CTkFrame) -> None:
+        header = ctk.CTkFrame(parent, fg_color=UI["panel_2"], corner_radius=12)
+        header.pack(fill="x", pady=(0, 0))
 
-        left = ttk.Frame(header, style="Hero.TFrame")
-        left.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        brand_row = ttk.Frame(left, style="Hero.TFrame")
-        brand_row.pack(fill=tk.X)
-        ttk.Label(brand_row, text="◈ JAV", style="Hero.TLabel", font=("Segoe UI", 28, "bold")).pack(side=tk.LEFT)
-        ttk.Label(
-            brand_row,
-            text="Jarvis-like local companion",
-            style="Muted.Hero.TLabel",
-            font=("Segoe UI", 10, "bold"),
-        ).pack(side=tk.LEFT, padx=(12, 0), pady=(12, 0))
-        ttk.Label(
-            left,
-            text="Voice • Memory • Vision • Actions • Safety • Ambient perception",
-            style="Muted.Hero.TLabel",
-            font=("Segoe UI", 10),
+        left = ctk.CTkFrame(header, fg_color=UI["panel_2"])
+        left.pack(side="left", fill="x", expand=True, padx=18, pady=14)
+
+        brand_row = ctk.CTkFrame(left, fg_color=UI["panel_2"])
+        brand_row.pack(fill="x")
+        ctk.CTkLabel(brand_row, text="◈ JAV", text_color=UI["cyan"], font=FONT(28, True)).pack(side="left")
+        ctk.CTkLabel(
+            brand_row, text="Jarvis-like local companion",
+            text_color=UI["muted"], font=FONT(10, True),
+        ).pack(side="left", padx=(12, 0), pady=(12, 0))
+
+        ctk.CTkLabel(
+            left, text="Voice • Memory • Vision • Actions • Safety • Ambient perception",
+            text_color=UI["dim"], font=FONT(10),
         ).pack(anchor="w", pady=(2, 8))
 
         self.header_pills: Dict[str, StatusPill] = {}
-        pills = ttk.Frame(left, style="Hero.TFrame")
-        pills.pack(anchor="w")
+        pills_row = ctk.CTkFrame(left, fg_color=UI["panel_2"])
+        pills_row.pack(anchor="w")
         for key, label, value in [
             ("kernel", "Kernel", "booting"),
             ("voice", "Voice", "stopped"),
             ("ambient", "Ambient", "off"),
             ("models", "Models", "checking"),
         ]:
-            pill = StatusPill(pills, label, value)
-            pill.pack(side=tk.LEFT, padx=(0, 8))
+            pill = StatusPill(pills_row, label, value)
+            pill.pack(side="left", padx=(0, 8))
             self.header_pills[key] = pill
 
-        actions = ttk.Frame(header, style="Hero.TFrame")
-        actions.pack(side=tk.RIGHT)
-        self.status_label = ttk.Label(actions, text="starting…", style="Muted.Hero.TLabel", font=("Segoe UI", 9, "bold"))
-        self.status_label.grid(row=0, column=0, columnspan=4, sticky="e", pady=(0, 8))
-        ttk.Button(actions, text="⚙ Settings", command=self.open_settings).grid(row=1, column=0, padx=3)
-        ttk.Button(actions, text="🧠 Models", command=self._open_model_wizard).grid(row=1, column=1, padx=3)
-        ttk.Button(actions, text="🎙 Voice", command=self.toggle_voice_process).grid(row=1, column=2, padx=3)
-        ttk.Button(actions, text="🩺 Doctor", command=self.system_diagnose).grid(row=1, column=3, padx=3)
+        actions = ctk.CTkFrame(header, fg_color=UI["panel_2"])
+        actions.pack(side="right", padx=18, pady=14)
 
-    def _build_status_cards(self, parent: ttk.Frame) -> None:
-        grid = ttk.Frame(parent)
-        grid.pack(fill=tk.X, pady=(10, 0))
-        self.cards: Dict[str, InfoCard] = {}
-        for i, key_title in enumerate([
-            ("kernel", "Kernel"),
-            ("models", "Models"),
-            ("voice", "Voice"),
-            ("ambient", "Ambient"),
-            ("system", "System"),
-            ("tasks", "Tasks"),
-            ("approvals", "Approvals"),
-            ("memory", "Memory"),
+        self.status_label = ctk.CTkLabel(
+            actions, text="starting…", text_color=UI["muted"], font=FONT(9, True)
+        )
+        self.status_label.grid(row=0, column=0, columnspan=4, sticky="e", pady=(0, 8))
+
+        for col, (text, cmd) in enumerate([
+            ("⚙ Settings", self.open_settings),
+            ("🧠 Models", self._open_model_wizard),
+            ("🎙 Voice", self.toggle_voice_process),
+            ("🩺 Doctor", self.system_diagnose),
         ]):
-            key, title = key_title
+            ctk.CTkButton(actions, text=text, command=cmd, width=90, **_btn_kwargs()).grid(
+                row=1, column=col, padx=3
+            )
+
+    def _build_status_cards(self, parent: ctk.CTkFrame) -> None:
+        grid = ctk.CTkFrame(parent, fg_color=UI["bg"])
+        grid.pack(fill="x", pady=(10, 0))
+        self.cards: Dict[str, InfoCard] = {}
+        keys = ["kernel", "models", "voice", "ambient", "system", "tasks", "approvals", "memory"]
+        titles = ["Kernel", "Models", "Voice", "Ambient", "System", "Tasks", "Approvals", "Memory"]
+        for i, (key, title) in enumerate(zip(keys, titles)):
             card = InfoCard(grid, title)
-            card.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 8, 0))
+            card.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 6, 0))
             grid.columnconfigure(i, weight=1)
             self.cards[key] = card
 
-    def _build_chat(self, parent: ttk.Frame) -> None:
-        chat_card = ttk.Frame(parent, style="Card.TFrame", padding=10)
-        chat_card.pack(fill=tk.BOTH, expand=True)
-        row = ttk.Frame(chat_card, style="Card.TFrame")
-        row.pack(fill=tk.X)
-        ttk.Label(row, text="Conversation", style="Card.TLabel", font=("Segoe UI", 15, "bold")).pack(side=tk.LEFT)
-        ttk.Label(row, text="ask naturally — actions still pass safety gates", style="Muted.Card.TLabel").pack(side=tk.LEFT, padx=(10, 0))
-        ttk.Button(row, text="Clear", command=self._clear_chat).pack(side=tk.RIGHT)
+    def _build_chat(self, parent: ctk.CTkFrame) -> None:
+        chat_card = ctk.CTkFrame(parent, fg_color=UI["panel"], corner_radius=12)
+        chat_card.pack(fill="both", expand=True)
 
-        shortcuts = ttk.Frame(chat_card, style="Card.TFrame")
-        shortcuts.pack(fill=tk.X, pady=(8, 0))
+        top_row = ctk.CTkFrame(chat_card, fg_color=UI["panel"])
+        top_row.pack(fill="x", padx=12, pady=(12, 0))
+        ctk.CTkLabel(top_row, text="Conversation", text_color=UI["text"], font=FONT(15, True)).pack(side="left")
+        ctk.CTkLabel(top_row, text="ask naturally — actions still pass safety gates",
+                     text_color=UI["muted"], font=FONT(9)).pack(side="left", padx=(10, 0))
+        ctk.CTkButton(top_row, text="Clear", command=self._clear_chat, width=60, **_btn_kwargs()).pack(side="right")
+
+        shortcuts = ctk.CTkFrame(chat_card, fg_color=UI["panel"])
+        shortcuts.pack(fill="x", padx=12, pady=(8, 0))
         for label, prompt in [
             ("🩺 Diagnose", "перевір систему"),
             ("👁 Screen", "проаналізуй екран і скажи що робити"),
             ("🧠 Models", "покажи статус моделей"),
-            ("🛠 Fix project", "розберися з помилками в ."),
+            ("🛠 Fix", "розберися з помилками в ."),
             ("🌐 Research", "пошукай в інтернеті "),
         ]:
-            ttk.Button(shortcuts, text=label, command=lambda p=prompt: self._prefill(p)).pack(side=tk.LEFT, padx=(0, 6))
+            ctk.CTkButton(shortcuts, text=label, command=lambda p=prompt: self._prefill(p),
+                          width=90, **_btn_kwargs()).pack(side="left", padx=(0, 6))
 
-        self.chat = scrolledtext.ScrolledText(
-            chat_card, wrap=tk.WORD, state=tk.DISABLED, bg=UI["input"], fg=UI["text"],
-            insertbackground=UI["text"], relief=tk.FLAT, font=("Segoe UI", 10), padx=14, pady=14,
+        self.chat = ctk.CTkTextbox(
+            chat_card, wrap="word", state="disabled",
+            fg_color=UI["input"], text_color=UI["text"], font=FONT(10),
         )
-        self.chat.tag_configure("user", foreground=UI["blue"], font=("Segoe UI", 10, "bold"))
-        self.chat.tag_configure("assistant", foreground=UI["green"], font=("Segoe UI", 10, "bold"))
-        self.chat.tag_configure("system", foreground=UI["orange"], font=("Segoe UI", 10, "bold"))
-        self.chat.tag_configure("event", foreground=UI["purple"], font=("Segoe UI", 10, "bold"))
-        self.chat.tag_configure("body", foreground=UI["text"], font=("Segoe UI", 10))
-        self.chat.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self.chat._textbox.tag_configure("user", foreground=UI["blue"], font=("Segoe UI", 10, "bold"))
+        self.chat._textbox.tag_configure("assistant", foreground=UI["green"], font=("Segoe UI", 10, "bold"))
+        self.chat._textbox.tag_configure("system", foreground=UI["orange"], font=("Segoe UI", 10, "bold"))
+        self.chat._textbox.tag_configure("event", foreground=UI["purple"], font=("Segoe UI", 10, "bold"))
+        self.chat._textbox.tag_configure("body", foreground=UI["text"], font=("Segoe UI", 10))
+        self.chat.pack(fill="both", expand=True, padx=12, pady=(8, 0))
 
-        input_frame = ttk.Frame(parent, style="SoftCard.TFrame", padding=(8, 8))
-        input_frame.pack(fill=tk.X, pady=(8, 0))
+        input_frame = ctk.CTkFrame(parent, fg_color=UI["panel_2"], corner_radius=10)
+        input_frame.pack(fill="x", pady=(8, 0))
         self.input_var = tk.StringVar()
-        self.input_entry = ttk.Entry(input_frame, textvariable=self.input_var, font=("Segoe UI", 11))
-        self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.input_entry = ctk.CTkEntry(
+            input_frame, textvariable=self.input_var, font=FONT(11),
+            fg_color=UI["input"], text_color=UI["text"], border_color=UI["border"],
+            placeholder_text="Ask JAV anything…",
+        )
+        self.input_entry.pack(side="left", fill="x", expand=True, padx=8, pady=8)
         self.input_entry.bind("<Return>", lambda _e: self.send_message())
-        ttk.Button(input_frame, text="Send", style="Accent.TButton", command=self.send_message).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(input_frame, text="Screen", command=lambda: self._send_text("проаналізуй екран і скажи що робити")).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(input_frame, text="Task", command=lambda: self._prefill("розберися з цією задачею: ")).pack(side=tk.RIGHT, padx=(8, 0))
 
-    def _build_right_tabs(self, parent: ttk.Frame) -> None:
-        tabs = ttk.Notebook(parent)
-        tabs.pack(fill=tk.BOTH, expand=True)
+        ctk.CTkButton(input_frame, text="Task", command=lambda: self._prefill("розберися з цією задачею: "),
+                      width=60, **_btn_kwargs()).pack(side="right", padx=(0, 4), pady=8)
+        ctk.CTkButton(input_frame, text="Screen",
+                      command=lambda: self._send_text("проаналізуй екран і скажи що робити"),
+                      width=70, **_btn_kwargs()).pack(side="right", padx=(0, 4), pady=8)
+        ctk.CTkButton(input_frame, text="Send", command=self.send_message,
+                      width=70, **_btn_kwargs(accent=True)).pack(side="right", padx=(0, 4), pady=8)
 
-        dashboard = ScrollableFrame(tabs)
-        commands = ScrollableFrame(tabs)
-        tasks = ScrollableFrame(tabs)
-        approvals = ttk.Frame(tabs, padding=8)
-        memory = ScrollableFrame(tabs)
-        models = ScrollableFrame(tabs)
-        events = ttk.Frame(tabs, padding=8)
-        doctor = ttk.Frame(tabs, padding=8)
-        voice_setup = ScrollableFrame(tabs)
-        logs = ttk.Frame(tabs, padding=8)
+    def _build_right_tabs(self, parent: ctk.CTkFrame) -> None:
+        tabs = ctk.CTkTabview(
+            parent,
+            fg_color=UI["panel"],
+            segmented_button_fg_color=UI["panel_3"],
+            segmented_button_selected_color=UI["panel_2"],
+            segmented_button_selected_hover_color=UI["border"],
+            segmented_button_unselected_color=UI["panel_3"],
+            segmented_button_unselected_hover_color=UI["border"],
+            text_color=UI["text"],
+        )
+        tabs.pack(fill="both", expand=True)
 
-        for frame, label in [
-            (dashboard, "🏠 Home"), (commands, "⌘ Commands"), (tasks, "✅ Tasks"),
-            (approvals, "🛡 Approvals"), (memory, "🧠 Memory"), (models, "⚙ Models"),
-            (events, "📡 Events"), (doctor, "🩺 Doctor"), (voice_setup, "🎙 Voice"), (logs, "📜 Logs"),
-        ]:
-            tabs.add(frame, text=label)
+        names = ["🏠 Home", "⌘ Cmd", "✅ Tasks", "🛡 Appr", "🧠 Mem",
+                 "⚙ Models", "📡 Events", "🩺 Doctor", "🎙 Voice", "📜 Logs"]
+        for n in names:
+            tabs.add(n)
+
+        def _sf(tab_name: str) -> ctk.CTkScrollableFrame:
+            frame = tabs.tab(tab_name)
+            sf = ctk.CTkScrollableFrame(frame, fg_color=UI["bg"])
+            sf.pack(fill="both", expand=True)
+            return sf
+
+        def _fixed(tab_name: str) -> ctk.CTkFrame:
+            frame = tabs.tab(tab_name)
+            frame.configure(fg_color=UI["bg"])
+            f = ctk.CTkFrame(frame, fg_color=UI["bg"])
+            f.pack(fill="both", expand=True, padx=8, pady=8)
+            return f
+
+        dashboard   = _sf("🏠 Home")
+        commands    = _sf("⌘ Cmd")
+        tasks       = _sf("✅ Tasks")
+        memory      = _sf("🧠 Mem")
+        models      = _sf("⚙ Models")
+        voice_setup = _sf("🎙 Voice")
+        approvals   = _fixed("🛡 Appr")
+        events      = _fixed("📡 Events")
+        doctor      = _fixed("🩺 Doctor")
+        logs        = _fixed("📜 Logs")
 
         self._build_dashboard_tab(dashboard)
         self._build_commands_tab(commands)
@@ -407,25 +404,39 @@ class DesktopApp:
         self._build_voice_setup_tab(voice_setup)
         self._build_logs_tab(logs)
 
+    # ------------------------------------------------------------------
+    # Tab helper widgets
+    # ------------------------------------------------------------------
     def _button(self, parent, text: str, command) -> None:
-        ttk.Button(parent.body if isinstance(parent, ScrollableFrame) else parent, text=text, command=command).pack(fill=tk.X, pady=4, padx=4)
+        ctk.CTkButton(parent, text=text, command=command, **_btn_kwargs()).pack(
+            fill="x", pady=4, padx=4
+        )
 
     def _chip(self, parent, text: str, command) -> None:
-        ttk.Button(parent.body if isinstance(parent, ScrollableFrame) else parent, text=text, command=command).pack(fill=tk.X, pady=3, padx=4)
+        ctk.CTkButton(parent, text=text, command=command, **_btn_kwargs()).pack(
+            fill="x", pady=3, padx=4
+        )
 
-    def _section(self, parent, title: str, subtitle: str = "") -> ttk.Frame:
-        body = parent.body if isinstance(parent, ScrollableFrame) else parent
-        box = ttk.Frame(body, style="Card.TFrame", padding=10)
-        box.pack(fill=tk.X, pady=(0, 10), padx=2)
-        ttk.Label(box, text=title, style="Card.TLabel", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+    def _section(self, parent, title: str, subtitle: str = "") -> ctk.CTkFrame:
+        box = ctk.CTkFrame(parent, fg_color=UI["panel"], corner_radius=8)
+        box.pack(fill="x", pady=(0, 10), padx=2)
+        ctk.CTkLabel(box, text=title, text_color=UI["text"], font=FONT(12, True)).pack(
+            anchor="w", padx=10, pady=(10, 0)
+        )
         if subtitle:
-            ttk.Label(box, text=subtitle, style="Muted.Card.TLabel", wraplength=360).pack(anchor="w", pady=(2, 8))
+            ctk.CTkLabel(box, text=subtitle, text_color=UI["muted"], wraplength=360,
+                         font=FONT(9)).pack(anchor="w", padx=10, pady=(2, 8))
         return box
 
     def _label(self, parent, text: str, bold: bool = False) -> None:
-        ttk.Label(parent.body if isinstance(parent, ScrollableFrame) else parent, text=text, font=("Segoe UI", 11, "bold") if bold else ("Segoe UI", 10)).pack(anchor="w", pady=(8 if bold else 2, 4), padx=4)
+        ctk.CTkLabel(parent, text=text, font=FONT(11, bold), text_color=UI["text"]).pack(
+            anchor="w", pady=(8 if bold else 2, 4), padx=4
+        )
 
-    def _build_dashboard_tab(self, tab: ScrollableFrame) -> None:
+    # ------------------------------------------------------------------
+    # Tab builders
+    # ------------------------------------------------------------------
+    def _build_dashboard_tab(self, tab: ctk.CTkScrollableFrame) -> None:
         top = self._section(tab, "Start here", "Ask naturally, or use the safest one-click actions below.")
         for text, cmd in [
             ("🩺 Diagnose system", self.system_diagnose),
@@ -434,31 +445,47 @@ class DesktopApp:
             ("👁 Understand screen", self.understand_gui),
             ("✅ Continue task", self.task_step),
         ]:
-            ttk.Button(top, text=text, command=cmd, style="Accent.TButton" if "Diagnose" in text else "TButton").pack(fill=tk.X, pady=3)
+            ctk.CTkButton(top, text=text, command=cmd,
+                          **(_btn_kwargs(accent=True) if "Diagnose" in text else _btn_kwargs())).pack(
+                fill="x", pady=3, padx=10
+            )
 
-        workspace = self._section(tab, "Workspace", "Safe file actions only operate inside this folder. Import/change it before asking JAV to read or repair a project.")
-        self.workspace_label = ttk.Label(workspace, text=self._workspace_path_text(), style="Muted.Card.TLabel", wraplength=360)
-        self.workspace_label.pack(anchor="w", pady=(0, 6))
-        ttk.Button(workspace, text="📂 Open workspace", command=self.open_workspace).pack(fill=tk.X, pady=3)
-        ttk.Button(workspace, text="🔁 Change workspace", command=self.change_workspace).pack(fill=tk.X, pady=3)
-        ttk.Button(workspace, text="📥 Import project into workspace", command=self.import_project_to_workspace).pack(fill=tk.X, pady=3)
+        workspace = self._section(tab, "Workspace", "Safe file actions only operate inside this folder.")
+        self.workspace_label = ctk.CTkLabel(
+            workspace, text=self._workspace_path_text(),
+            text_color=UI["muted"], wraplength=360, font=FONT(9),
+        )
+        self.workspace_label.pack(anchor="w", padx=10, pady=(0, 6))
+        for text, cmd in [
+            ("📂 Open workspace", self.open_workspace),
+            ("🔁 Change workspace", self.change_workspace),
+            ("📥 Import project into workspace", self.import_project_to_workspace),
+        ]:
+            ctk.CTkButton(workspace, text=text, command=cmd, **_btn_kwargs()).pack(fill="x", pady=3, padx=10)
 
         voice = self._section(tab, "Voice companion", "Start the separate voice loop when microphone/STT/TTS are configured.")
-        self.voice_status_label = ttk.Label(voice, text="Voice: stopped", style="Muted.Card.TLabel")
-        self.voice_status_label.pack(anchor="w", pady=(0, 6))
-        ttk.Button(voice, text="🎙 Start / stop continuous voice", command=self.toggle_voice_process).pack(fill=tk.X, pady=3)
-        ttk.Button(voice, text="🎧 Start / stop push-to-talk voice", command=self.toggle_voice_ptt_process).pack(fill=tk.X, pady=3)
-        ttk.Button(voice, text="🧪 Voice setup report", command=self.voice_setup_report).pack(fill=tk.X, pady=3)
-        ttk.Button(voice, text="🔊 Test pyttsx3 fallback", command=self.voice_test_pyttsx3).pack(fill=tk.X, pady=3)
+        self.voice_status_label = ctk.CTkLabel(voice, text="Voice: stopped", text_color=UI["muted"], font=FONT(9))
+        self.voice_status_label.pack(anchor="w", padx=10, pady=(0, 6))
+        for text, cmd in [
+            ("🎙 Start / stop continuous voice", self.toggle_voice_process),
+            ("🎧 Start / stop push-to-talk voice", self.toggle_voice_ptt_process),
+            ("🧪 Voice setup report", self.voice_setup_report),
+            ("🔊 Test pyttsx3 fallback", self.voice_test_pyttsx3),
+        ]:
+            ctk.CTkButton(voice, text=text, command=cmd, **_btn_kwargs()).pack(fill="x", pady=3, padx=10)
 
         safety = self._section(tab, "Safety level", "Use the lowest level that can complete the task.")
         for lvl, text in [(1, "L1 Read-only"), (4, "L4 File write in workspace"), (5, "L5 Allowlisted shell")]:
-            ttk.Button(safety, text=text, command=lambda l=lvl: self.set_safety(l)).pack(fill=tk.X, pady=3)
+            ctk.CTkButton(safety, text=text, command=lambda l=lvl: self.set_safety(l),
+                          **_btn_kwargs()).pack(fill="x", pady=3, padx=10)
 
-        ambient = self._section(tab, "Ambient perception", "Background screen awareness. Keep privacy mode on when using sensitive apps.")
-        ttk.Button(ambient, text="👁 Ambient status", command=lambda: self._send_text("/ambient-status")).pack(fill=tk.X, pady=3)
-        ttk.Button(ambient, text="🎚 Emotional voice status", command=lambda: self._send_text("/emotion-voice-status")).pack(fill=tk.X, pady=3)
-        ttk.Button(ambient, text="🔒 Privacy reminder", command=lambda: self._append("system", "Ambient perception is local. Keep SCREEN_AMBIENT_PRIVACY_MODE=true and exclude banking/password apps if needed.")).pack(fill=tk.X, pady=3)
+        ambient = self._section(tab, "Ambient perception", "Background screen awareness.")
+        for text, cmd in [
+            ("👁 Ambient status", lambda: self._send_text("/ambient-status")),
+            ("🎚 Emotional voice status", lambda: self._send_text("/emotion-voice-status")),
+            ("🔒 Privacy reminder", lambda: self._append("system", "Ambient perception is local. Keep SCREEN_AMBIENT_PRIVACY_MODE=true.")),
+        ]:
+            ctk.CTkButton(ambient, text=text, command=cmd, **_btn_kwargs()).pack(fill="x", pady=3, padx=10)
 
         monitor = self._section(tab, "Companion status", "System monitor, runtime, proactive assistant and daily summary.")
         for text, cmd in [
@@ -466,9 +493,9 @@ class DesktopApp:
             ("🔔 Proactive status", self.proactive_status), ("📅 Daily summary", self.daily_summary),
             ("🌙 Sleep / consolidate memory", self.sleep_cycle), ("🛠 Action status", self.action_status),
         ]:
-            ttk.Button(monitor, text=text, command=cmd).pack(fill=tk.X, pady=3)
+            ctk.CTkButton(monitor, text=text, command=cmd, **_btn_kwargs()).pack(fill="x", pady=3, padx=10)
 
-    def _build_commands_tab(self, tab: ScrollableFrame) -> None:
+    def _build_commands_tab(self, tab: ctk.CTkScrollableFrame) -> None:
         self._label(tab, "Command palette", True)
         examples = [
             "перевір систему", "діагностуй систему", "покажи статус моделей", "покажи стан пам'яті",
@@ -481,7 +508,7 @@ class DesktopApp:
         for text in examples:
             self._button(tab, text, lambda t=text: self._prefill(t))
 
-    def _build_tasks_tab(self, tab: ScrollableFrame) -> None:
+    def _build_tasks_tab(self, tab: ctk.CTkScrollableFrame) -> None:
         self._label(tab, "Task orchestration", True)
         for text, cmd in [
             ("New task: diagnose project", lambda: self._prefill("розберися з помилками в .")),
@@ -492,49 +519,84 @@ class DesktopApp:
         ]:
             self._button(tab, text, cmd)
         self._label(tab, "Active task feed", True)
-        self.task_feed = tk.Listbox(tab.body, height=12, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
-        self.task_feed.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.task_feed = ctk.CTkTextbox(
+            tab, height=220, state="disabled",
+            fg_color=UI["input"], text_color=UI["text"], font=MONO(9),
+        )
+        self.task_feed.pack(fill="both", expand=True, padx=4, pady=4)
 
-    def _build_approvals_tab(self, tab: ttk.Frame) -> None:
-        ttk.Label(tab, text="Pending approvals", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.approval_list = tk.Listbox(tab, height=12, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
-        self.approval_list.pack(fill=tk.BOTH, expand=True, pady=(6, 6))
-        row = ttk.Frame(tab)
-        row.pack(fill=tk.X)
-        ttk.Button(row, text="Approve selected", command=self.approve_selected).pack(side=tk.LEFT)
-        ttk.Button(row, text="Deny selected", command=self.deny_selected).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(row, text="Refresh action status", command=self.action_status).pack(side=tk.RIGHT)
-        self.approval_detail = scrolledtext.ScrolledText(tab, height=8, wrap=tk.WORD, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
-        self.approval_detail.pack(fill=tk.BOTH, expand=False, pady=(8, 0))
+    def _build_approvals_tab(self, tab: ctk.CTkFrame) -> None:
+        ctk.CTkLabel(tab, text="Pending approvals", font=FONT(11, True), text_color=UI["text"]).pack(anchor="w")
+        lb_wrap = ctk.CTkFrame(tab, fg_color=UI["input"], corner_radius=6)
+        lb_wrap.pack(fill="both", expand=True, pady=(6, 6))
+        self.approval_list = tk.Listbox(
+            lb_wrap, height=12, bg=UI["input"], fg=UI["text"], relief=tk.FLAT,
+            selectbackground=UI["border"], font=("Segoe UI", 10), bd=0, highlightthickness=0,
+        )
+        self.approval_list.pack(fill="both", expand=True, padx=4, pady=4)
         self.approval_list.bind("<<ListboxSelect>>", lambda _e: self._show_selected_approval())
 
-    def _build_memory_tab(self, tab: ScrollableFrame) -> None:
+        row = ctk.CTkFrame(tab, fg_color=UI["bg"])
+        row.pack(fill="x")
+        ctk.CTkButton(row, text="Approve selected", command=self.approve_selected,
+                      **_btn_kwargs(accent=True)).pack(side="left")
+        ctk.CTkButton(row, text="Deny selected", command=self.deny_selected,
+                      **_btn_kwargs(danger=True)).pack(side="left", padx=(6, 0))
+        ctk.CTkButton(row, text="Refresh action status", command=self.action_status,
+                      **_btn_kwargs()).pack(side="right")
+
+        self.approval_detail = ctk.CTkTextbox(
+            tab, height=140, fg_color=UI["input"], text_color=UI["muted"],
+            font=MONO(9), state="disabled",
+        )
+        self.approval_detail.pack(fill="both", expand=False, pady=(8, 0))
+
+    def _build_memory_tab(self, tab: ctk.CTkScrollableFrame) -> None:
         self._label(tab, "Memory and skills", True)
         quick = self._section(tab, "Quick memory actions", "Search long-term memory, check storage and manage skills.")
-        ttk.Button(quick, text="Memory status", command=self.memory_status).pack(fill=tk.X, pady=3)
-        ttk.Button(quick, text="Skill library", command=lambda: self._send_text("покажи навички")).pack(fill=tk.X, pady=3)
-        ttk.Button(quick, text="Knowledge graph", command=lambda: self._send_text("покажи граф знань")).pack(fill=tk.X, pady=3)
+        for text, cmd in [
+            ("Memory status", self.memory_status),
+            ("Skill library", lambda: self._send_text("покажи навички")),
+            ("Knowledge graph", lambda: self._send_text("покажи граф знань")),
+        ]:
+            ctk.CTkButton(quick, text=text, command=cmd, **_btn_kwargs()).pack(fill="x", pady=3, padx=10)
 
         browser = self._section(tab, "Memory browser", "Search SQLite/vector memory without using slash commands.")
-        row = ttk.Frame(browser, style="Card.TFrame")
-        row.pack(fill=tk.X, pady=(4, 6))
+        row = ctk.CTkFrame(browser, fg_color=UI["panel"])
+        row.pack(fill="x", padx=10, pady=(4, 6))
         self.memory_search_var = tk.StringVar()
-        entry = ttk.Entry(row, textvariable=self.memory_search_var)
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        entry.bind("<Return>", lambda _e: self.search_memory_browser())
-        ttk.Button(row, text="Search", command=self.search_memory_browser).pack(side=tk.RIGHT, padx=(6, 0))
-        ttk.Button(row, text="Refresh recent", command=self.refresh_recent_memory).pack(side=tk.RIGHT, padx=(6, 0))
-        self.memory_list = tk.Listbox(browser, height=12, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
-        self.memory_list.pack(fill=tk.BOTH, expand=True, pady=(4, 6))
-        self.memory_detail = scrolledtext.ScrolledText(browser, height=8, wrap=tk.WORD, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
-        self.memory_detail.pack(fill=tk.BOTH, expand=True)
+        mem_entry = ctk.CTkEntry(
+            row, textvariable=self.memory_search_var,
+            fg_color=UI["input"], text_color=UI["text"], border_color=UI["border"],
+            placeholder_text="Search memory…",
+        )
+        mem_entry.pack(side="left", fill="x", expand=True)
+        mem_entry.bind("<Return>", lambda _e: self.search_memory_browser())
+        ctk.CTkButton(row, text="Search", command=self.search_memory_browser,
+                      width=70, **_btn_kwargs()).pack(side="right", padx=(6, 0))
+        ctk.CTkButton(row, text="Refresh recent", command=self.refresh_recent_memory,
+                      width=100, **_btn_kwargs()).pack(side="right", padx=(6, 0))
+
+        lb_wrap = ctk.CTkFrame(browser, fg_color=UI["input"], corner_radius=6)
+        lb_wrap.pack(fill="x", padx=10, pady=(4, 6))
+        self.memory_list = tk.Listbox(
+            lb_wrap, height=12, bg=UI["input"], fg=UI["text"], relief=tk.FLAT,
+            selectbackground=UI["border"], font=("Segoe UI", 9), bd=0, highlightthickness=0,
+        )
+        self.memory_list.pack(fill="both", expand=True, padx=2, pady=2)
         self.memory_list.bind("<<ListboxSelect>>", lambda _e: self.show_selected_memory())
+
+        self.memory_detail = ctk.CTkTextbox(
+            browser, height=200, fg_color=UI["input"], text_color=UI["muted"],
+            font=MONO(9), state="disabled",
+        )
+        self.memory_detail.pack(fill="both", expand=True, padx=10, pady=(4, 10))
         self._memory_rows = []
 
-    def _build_models_tab(self, tab: ScrollableFrame) -> None:
+    def _build_models_tab(self, tab: ctk.CTkScrollableFrame) -> None:
         from interfaces.desktop.model_status_panel import ModelStatusPanel
-        self._model_panel = ModelStatusPanel(tab.body, kernel=None, padding=4)
-        self._model_panel.pack(fill=tk.BOTH, expand=True)
+        self._model_panel = ModelStatusPanel(tab, kernel=None, padding=4)
+        self._model_panel.pack(fill="both", expand=True)
 
     def _open_model_wizard(self) -> None:
         from interfaces.desktop.model_setup_wizard import ModelSetupWizard
@@ -546,23 +608,27 @@ class DesktopApp:
 
         ModelSetupWizard(self.root, on_complete=on_complete, on_cancel=lambda: None)
 
-    def _build_events_tab(self, tab: ttk.Frame) -> None:
-        ttk.Label(tab, text="Recent events", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 6))
-        self.event_list = tk.Listbox(tab, height=20, bg=UI["input"], fg=UI["muted"], relief=tk.FLAT)
-        self.event_list.pack(fill=tk.BOTH, expand=True)
-        row = ttk.Frame(tab)
-        row.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(row, text="Clear events", command=lambda: self.event_list.delete(0, tk.END)).pack(side=tk.LEFT)
-        ttk.Button(row, text="Runtime status", command=self.runtime_status).pack(side=tk.RIGHT)
+    def _build_events_tab(self, tab: ctk.CTkFrame) -> None:
+        ctk.CTkLabel(tab, text="Recent events", font=FONT(11, True), text_color=UI["text"]).pack(
+            anchor="w", pady=(0, 6)
+        )
+        self.event_list = ctk.CTkTextbox(
+            tab, fg_color=UI["input"], text_color=UI["muted"], font=MONO(9), state="disabled",
+        )
+        self.event_list.pack(fill="both", expand=True)
+        row = ctk.CTkFrame(tab, fg_color=UI["bg"])
+        row.pack(fill="x", pady=(8, 0))
+        ctk.CTkButton(row, text="Clear events", command=self._clear_event_list, **_btn_kwargs()).pack(side="left")
+        ctk.CTkButton(row, text="Runtime status", command=self.runtime_status, **_btn_kwargs()).pack(side="right")
 
-    def _build_doctor_tab(self, tab: ttk.Frame) -> None:
+    def _build_doctor_tab(self, tab: ctk.CTkFrame) -> None:
         from interfaces.desktop.doctor_panel import DoctorPanel
         panel = DoctorPanel(tab)
-        panel.pack(fill=tk.BOTH, expand=True)
+        panel.pack(fill="both", expand=True)
 
-    def _build_voice_setup_tab(self, tab: ScrollableFrame) -> None:
+    def _build_voice_setup_tab(self, tab: ctk.CTkScrollableFrame) -> None:
         self._label(tab, "Voice setup", True)
-        info = self._section(tab, "Setup checklist", "Check microphone/STT/TTS before starting full voice mode. Missing voice dependencies are warnings, not core failures.")
+        info = self._section(tab, "Setup checklist", "Check microphone/STT/TTS before starting full voice mode.")
         for text, cmd in [
             ("🧪 Run voice setup report", self.voice_setup_report),
             ("🎙 List microphones", self.voice_list_microphones),
@@ -573,37 +639,47 @@ class DesktopApp:
             ("▶ Start / stop continuous voice process", self.toggle_voice_process),
             ("🎧 Start / stop push-to-talk voice process", self.toggle_voice_ptt_process),
         ]:
-            ttk.Button(info, text=text, command=cmd).pack(fill=tk.X, pady=3)
-        self.voice_setup_output = scrolledtext.ScrolledText(tab.body, height=20, wrap=tk.WORD, bg=UI["input"], fg=UI["text"], relief=tk.FLAT)
-        self.voice_setup_output.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 8))
-        self.voice_setup_output.insert(tk.END, "Run Voice setup report to check microphone, STT, Piper and pyttsx3.\n")
-        self.voice_setup_output.configure(state=tk.DISABLED)
+            ctk.CTkButton(info, text=text, command=cmd, **_btn_kwargs()).pack(fill="x", pady=3, padx=10)
 
-    def _build_logs_tab(self, tab: ttk.Frame) -> None:
-        header = ttk.Frame(tab)
-        header.pack(fill=tk.X, pady=(0, 6))
-        ttk.Label(header, text="Recent logs",
-                  font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
+        self.voice_setup_output = ctk.CTkTextbox(
+            tab, height=300, fg_color=UI["input"], text_color=UI["text"],
+            font=MONO(9), state="disabled",
+        )
+        self.voice_setup_output.pack(fill="both", expand=True, padx=4, pady=(4, 8))
+        self.voice_setup_output.configure(state="normal")
+        self.voice_setup_output.insert("end", "Run Voice setup report to check microphone, STT, Piper and pyttsx3.\n")
+        self.voice_setup_output.configure(state="disabled")
+
+    def _build_logs_tab(self, tab: ctk.CTkFrame) -> None:
+        header = ctk.CTkFrame(tab, fg_color=UI["bg"])
+        header.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(header, text="Recent logs", font=FONT(11, True), text_color=UI["text"]).pack(side="left")
 
         self._log_filter_var = tk.StringVar(value="ERROR")
-        ttk.Combobox(header, textvariable=self._log_filter_var,
-                     values=["ALL", "WARNING", "ERROR", "CRITICAL"],
-                     width=10, state="readonly").pack(side=tk.LEFT, padx=(8, 0))
+        ctk.CTkOptionMenu(
+            header, values=["ALL", "WARNING", "ERROR", "CRITICAL"],
+            variable=self._log_filter_var, width=130,
+            fg_color=UI["panel_3"], button_color=UI["panel_3"],
+            button_hover_color=UI["border"], dropdown_fg_color=UI["panel_2"],
+            text_color=UI["text"], dropdown_text_color=UI["text"],
+        ).pack(side="left", padx=(8, 0))
 
-        ttk.Button(header, text="Refresh",
-                   command=self._refresh_logs).pack(side=tk.RIGHT)
-        ttk.Button(header, text="Copy",
-                   command=self._copy_logs).pack(side=tk.RIGHT, padx=(0, 6))
+        ctk.CTkButton(header, text="Refresh", command=self._refresh_logs,
+                      width=70, **_btn_kwargs()).pack(side="right")
+        ctk.CTkButton(header, text="Copy", command=self._copy_logs,
+                      width=60, **_btn_kwargs()).pack(side="right", padx=(0, 6))
 
-        self._log_text = scrolledtext.ScrolledText(
-            tab, wrap=tk.WORD, state=tk.DISABLED,
-            bg=UI["input"], fg=UI["text"], font=("Consolas", 9),
+        self._log_text = ctk.CTkTextbox(
+            tab, state="disabled", fg_color=UI["input"],
+            text_color=UI["text"], font=MONO(9),
         )
-        self._log_text.pack(fill=tk.BOTH, expand=True)
+        self._log_text.pack(fill="both", expand=True)
 
+    # ------------------------------------------------------------------
+    # Log helpers
+    # ------------------------------------------------------------------
     def _refresh_logs(self) -> None:
-        level_filter = getattr(self, "_log_filter_var", None)
-        filter_val = level_filter.get() if level_filter else "ALL"
+        filter_val = self._log_filter_var.get() if hasattr(self, "_log_filter_var") else "ALL"
         log_file = self._resolve_log_file()
         if not log_file or not log_file.exists():
             self._set_log_text("Log file not found yet. Run JAV for a moment to generate logs.")
@@ -620,22 +696,20 @@ class DesktopApp:
         widget = getattr(self, "_log_text", None)
         if widget is None:
             return
-        widget.configure(state=tk.NORMAL)
-        widget.delete("1.0", tk.END)
-        widget.insert(tk.END, text)
-        widget.configure(state=tk.DISABLED)
-        widget.see(tk.END)
+        widget.configure(state="normal")
+        widget.delete("0.0", "end")
+        widget.insert("end", text)
+        widget.configure(state="disabled")
 
     def _copy_logs(self) -> None:
         widget = getattr(self, "_log_text", None)
         if widget is None:
             return
-        text = widget.get("1.0", tk.END)
+        text = widget.get("0.0", "end")
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
 
     def _resolve_log_file(self):
-        from pathlib import Path
         try:
             cfg = getattr(self, "cfg", None)
             if cfg is None:
@@ -656,26 +730,31 @@ class DesktopApp:
     def _prefill(self, text: str) -> None:
         self.input_var.set(text)
         self.input_entry.focus_set()
-        self.input_entry.icursor(tk.END)
 
     def _send_text(self, text: str) -> None:
         self.input_var.set(text)
         self.send_message()
 
     def _clear_chat(self) -> None:
-        self.chat.configure(state=tk.NORMAL)
-        self.chat.delete("1.0", tk.END)
-        self.chat.configure(state=tk.DISABLED)
+        self.chat.configure(state="normal")
+        self.chat.delete("0.0", "end")
+        self.chat.configure(state="disabled")
+
+    def _clear_event_list(self) -> None:
+        self.event_list.configure(state="normal")
+        self.event_list.delete("0.0", "end")
+        self.event_list.configure(state="disabled")
+        self._event_list_lines = 0
 
     def _append(self, role: str, text: str) -> None:
-        self.chat.configure(state=tk.NORMAL)
+        self.chat.configure(state="normal")
         prefix = {"user": "You", "assistant": "JAV", "system": "System", "event": "Event"}.get(role, role)
         tag = role if role in {"user", "assistant", "system", "event"} else "body"
         stamp = time.strftime("%H:%M")
-        self.chat.insert(tk.END, f"[{stamp}] {prefix}\n", tag)
-        self.chat.insert(tk.END, f"{text}\n\n", "body")
-        self.chat.see(tk.END)
-        self.chat.configure(state=tk.DISABLED)
+        self.chat._textbox.insert("end", f"[{stamp}] {prefix}\n", tag)
+        self.chat._textbox.insert("end", f"{text}\n\n", "body")
+        self.chat._textbox.see("end")
+        self.chat.configure(state="disabled")
 
     def _notify(self, title: str, message: str) -> None:
         key = f"{title}:{message[:80]}"
@@ -738,18 +817,34 @@ class DesktopApp:
         self.recent_events.insert(0, event)
         self.recent_events = self.recent_events[:250]
         label = f"{event.get('type')} ← {event.get('source_module')}"
-        self.event_list.insert(0, label)
-        if self.event_list.size() > 180:
-            self.event_list.delete(180, tk.END)
+
+        try:
+            self.event_list.configure(state="normal")
+            self.event_list.insert("0.0", label + "\n")
+            self._event_list_lines += 1
+            if self._event_list_lines > 180:
+                self.event_list.delete("180.0", "end")
+                self._event_list_lines = 180
+            self.event_list.configure(state="disabled")
+        except Exception:
+            pass
 
         etype = str(event.get("type") or "")
         self._last_event_by_type[etype] = event
         data = event.get("data") or {}
-        if etype in {"task_chain_created", "task_chain_step_completed", "task_chain_completed", "task_chain_failed", "task_chain_report_ready"}:
+        if etype in {"task_chain_created", "task_chain_step_completed", "task_chain_completed",
+                     "task_chain_failed", "task_chain_report_ready"}:
             task_label = f"{etype}: {data.get('task_id') or data.get('goal') or data.get('summary') or ''}"[:160]
-            self.task_feed.insert(0, task_label)
-            if self.task_feed.size() > 80:
-                self.task_feed.delete(80, tk.END)
+            try:
+                self.task_feed.configure(state="normal")
+                self.task_feed.insert("0.0", task_label + "\n")
+                self._task_feed_lines += 1
+                if self._task_feed_lines > 80:
+                    self.task_feed.delete("80.0", "end")
+                    self._task_feed_lines = 80
+                self.task_feed.configure(state="disabled")
+            except Exception:
+                pass
             self._task_event_count += 1
         if etype in {"action_pending_confirmation", "action_confirmation_required"}:
             pending_id = str(data.get("pending_id") or data.get("id") or data.get("request_id") or "").strip()
@@ -767,13 +862,14 @@ class DesktopApp:
         if etype == "kernel_degraded":
             msg = str(data.get("message") or "One or more modules failed to load.")
             failed = data.get("failed_modules", [])
-            names = ", ".join(str(m.get("path", "?")).split("\\")[-1].split("/")[-1]
-                              for m in failed[:5])
+            names = ", ".join(
+                str(m.get("path", "?")).split("\\")[-1].split("/")[-1] for m in failed[:5]
+            )
             detail = f" ({names})" if names else ""
             self._append("system", f"⚠ Degraded mode: {msg}{detail}")
             self._notify("JAV degraded mode", msg)
             try:
-                self.status_label.configure(text="degraded mode", foreground="#f0883e")
+                self.status_label.configure(text="degraded mode", text_color="#f0883e")
             except Exception:
                 pass
 
@@ -804,7 +900,8 @@ class DesktopApp:
                     text = str(event.data.get("text", "") or "").strip()
                 elif event.type == "proactive_daily_summary":
                     text = str(event.data.get("text", "") or "").strip()
-                elif event.type in {"system_status_report", "system_diagnosis_report", "runtime_status_report", "memory_status_report"}:
+                elif event.type in {"system_status_report", "system_diagnosis_report",
+                                    "runtime_status_report", "memory_status_report"}:
                     text = str(event.data.get("text") or event.data.get("summary") or "").strip()
                 if text:
                     self.messages.put_nowait(("assistant", text))
@@ -814,7 +911,6 @@ class DesktopApp:
         self.kernel.event_bus.emit = tapped_emit  # type: ignore[union-attr, method-assign]
 
     def _refresh_model_status_bg(self) -> None:
-        """Fetch router.status() in a daemon thread; cache result for _update_cards()."""
         if self._model_status_refreshing or not self.kernel_ready or self.kernel is None:
             self.root.after(5000, self._refresh_model_status_bg)
             return
@@ -842,8 +938,9 @@ class DesktopApp:
             self.status_label.configure(text="booting kernel…")
             for key, card in self.cards.items():
                 card.set("starting", "kernel booting")
-            if hasattr(self, "header_pills"):
-                self.header_pills.get("kernel").set("booting")
+            pill = self.header_pills.get("kernel") if hasattr(self, "header_pills") else None
+            if pill:
+                pill.set("booting")
             return
 
         state = self.api.get_state()
@@ -882,7 +979,8 @@ class DesktopApp:
         last_sys = self._last_event_by_type.get("system_status_report") or self._last_event_by_type.get("system_snapshot")
         if last_sys:
             data = last_sys.get("data") or {}
-            self.cards["system"].set(str(data.get("status") or data.get("summary") or "OK")[:24], str(data.get("text") or "")[:42])
+            self.cards["system"].set(str(data.get("status") or data.get("summary") or "OK")[:24],
+                                     str(data.get("text") or "")[:42])
         else:
             self.cards["system"].set("monitoring", "use Diagnose system")
         self.cards["tasks"].set(str(self._task_event_count), "task chain events")
@@ -890,7 +988,6 @@ class DesktopApp:
     def _voice_status_text(self) -> str:
         if self.voice_process and self.voice_process.poll() is None:
             return f"Voice: running pid={self.voice_process.pid}"
-        # Also read runtime status written by the voice loop when available.
         try:
             status_path = Path(getattr(self.cfg, "persistence_dir", "~/.jarvis_brain")).expanduser() / "runtime_voice_status.json"
             if status_path.exists():
@@ -907,7 +1004,8 @@ class DesktopApp:
             enabled = bool(getattr(screen, "auto_watch_enabled", False))
             proactive = bool(getattr(screen, "ambient_proactive", False))
             privacy = bool(getattr(screen, "ambient_privacy_mode", True))
-            return ("ON" if enabled else "OFF", f"proactive={'on' if proactive else 'off'} • privacy={'on' if privacy else 'off'}")
+            return ("ON" if enabled else "OFF",
+                    f"proactive={'on' if proactive else 'off'} • privacy={'on' if privacy else 'off'}")
         except Exception:
             return ("unknown", "screen config unavailable")
 
@@ -946,17 +1044,15 @@ class DesktopApp:
         if lower in {"/actions", "/action-status"}:
             self.action_status(); return
         if lower in {"/workspace", "/workspace-info"}:
-            self._append("system", "Current workspace: " + self._workspace_path_text() + "\nSafe file actions only operate inside this folder. Use Home → Change workspace or Import project into workspace."); return
+            self._append("system", "Current workspace: " + self._workspace_path_text()); return
         if lower in {"/ambient-status", "/ambient"}:
             status, detail = self._ambient_status_text()
-            self._append("system", f"Ambient perception: {status}\n{detail}")
-            return
+            self._append("system", f"Ambient perception: {status}\n{detail}"); return
         if lower in {"/emotion-voice-status", "/emotional-voice"}:
             voice_cfg = getattr(self.cfg, "voice", None)
             enabled = getattr(voice_cfg, "emotional_tts_enabled", False)
             strength = getattr(voice_cfg, "emotional_tts_strength", "?")
-            self._append("system", f"Emotional voice: {'ON' if enabled else 'OFF'}\nStrength: {strength}")
-            return
+            self._append("system", f"Emotional voice: {'ON' if enabled else 'OFF'}\nStrength: {strength}"); return
         if lower in {"/memory", "/memory-status", "/storage"}:
             self.memory_status(); return
         if lower in {"/models", "/model-status", "/model-health", "/model-profile"}:
@@ -1068,7 +1164,7 @@ class DesktopApp:
                 self.kernel.config.actions.workspace_path = str(path)
             os.environ["ACTION_WORKSPACE_PATH"] = str(path)
             self._set_workspace_label()
-            self._append("system", f"Workspace changed to: {path}\nRestart JAV to make every subsystem use this path. Current action executor will use it live when possible.")
+            self._append("system", f"Workspace changed to: {path}")
         except Exception as exc:
             messagebox.showerror("Workspace", str(exc))
 
@@ -1088,7 +1184,7 @@ class DesktopApp:
                 shutil.copytree(src_path, target, dirs_exist_ok=True)
             else:
                 shutil.copytree(src_path, target)
-            self._append("system", f"Imported project into workspace: {target}\nNow you can ask: виправ помилки в {src_path.name}")
+            self._append("system", f"Imported project into workspace: {target}")
         except Exception as exc:
             messagebox.showerror("Import project", str(exc))
 
@@ -1111,18 +1207,27 @@ class DesktopApp:
         db = self._memory_db_path()
         self._memory_rows = []
         self.memory_list.delete(0, tk.END)
-        self.memory_detail.delete("1.0", tk.END)
+        self.memory_detail.configure(state="normal")
+        self.memory_detail.delete("0.0", "end")
         if not db.exists():
-            self.memory_detail.insert(tk.END, f"Memory database not found yet:\n{db}\nTalk to JAV or run memory status first.")
+            self.memory_detail.insert("end", f"Memory database not found yet:\n{db}\nTalk to JAV or run memory status first.")
+            self.memory_detail.configure(state="disabled")
             return
         try:
             con = sqlite3.connect(str(db))
             con.row_factory = sqlite3.Row
             if query:
                 like = f"%{query}%"
-                rows = con.execute("SELECT id, memory_type, text, payload_json, importance, timestamp, source FROM memories WHERE text LIKE ? OR source LIKE ? ORDER BY timestamp DESC LIMIT 50", (like, like)).fetchall()
+                rows = con.execute(
+                    "SELECT id, memory_type, text, payload_json, importance, timestamp, source "
+                    "FROM memories WHERE text LIKE ? OR source LIKE ? ORDER BY timestamp DESC LIMIT 50",
+                    (like, like),
+                ).fetchall()
             else:
-                rows = con.execute("SELECT id, memory_type, text, payload_json, importance, timestamp, source FROM memories ORDER BY timestamp DESC LIMIT 50").fetchall()
+                rows = con.execute(
+                    "SELECT id, memory_type, text, payload_json, importance, timestamp, source "
+                    "FROM memories ORDER BY timestamp DESC LIMIT 50"
+                ).fetchall()
             con.close()
             for row in rows:
                 item = dict(row)
@@ -1130,15 +1235,18 @@ class DesktopApp:
                 snippet = str(item.get("text") or "").replace("\n", " ")[:96]
                 self.memory_list.insert(tk.END, f"{item.get('memory_type')}  imp={item.get('importance')}  {snippet}")
             if not rows:
-                self.memory_detail.insert(tk.END, "No memory rows found for this query.")
+                self.memory_detail.insert("end", "No memory rows found for this query.")
         except Exception as exc:
-            self.memory_detail.insert(tk.END, f"Could not read memory DB: {exc}")
+            self.memory_detail.insert("end", f"Could not read memory DB: {exc}")
+        self.memory_detail.configure(state="disabled")
 
     def show_selected_memory(self) -> None:
-        self.memory_detail.delete("1.0", tk.END)
+        self.memory_detail.configure(state="normal")
+        self.memory_detail.delete("0.0", "end")
         try:
             sel = self.memory_list.curselection()
             if not sel:
+                self.memory_detail.configure(state="disabled")
                 return
             row = self._memory_rows[sel[0]]
             payload = row.get("payload_json") or ""
@@ -1146,9 +1254,15 @@ class DesktopApp:
                 payload = json.dumps(json.loads(payload), ensure_ascii=False, indent=2)[:4000]
             except Exception:
                 payload = str(payload)[:4000]
-            self.memory_detail.insert(tk.END, f"ID: {row.get('id')}\nType: {row.get('memory_type')}\nSource: {row.get('source')}\nImportance: {row.get('importance')}\nTimestamp: {row.get('timestamp')}\n\nText:\n{row.get('text')}\n\nPayload:\n{payload}")
+            self.memory_detail.insert(
+                "end",
+                f"ID: {row.get('id')}\nType: {row.get('memory_type')}\nSource: {row.get('source')}\n"
+                f"Importance: {row.get('importance')}\nTimestamp: {row.get('timestamp')}\n\n"
+                f"Text:\n{row.get('text')}\n\nPayload:\n{payload}",
+            )
         except Exception as exc:
-            self.memory_detail.insert(tk.END, f"Could not show memory row: {exc}")
+            self.memory_detail.insert("end", f"Could not show memory row: {exc}")
+        self.memory_detail.configure(state="disabled")
 
     def task_status(self) -> None:
         self.emit("task_chain_status_requested", {"respond": True}, Priority.COGNITIVE)
@@ -1176,13 +1290,7 @@ class DesktopApp:
             info = (status.get("roles") or {}).get(role) or {}
             lines.append(f"- {role}: {info.get('provider', 'not configured')} / {info.get('model', '')} available={info.get('available', False)}")
         lines.append(f"available providers: {', '.join(status.get('available') or [])}")
-        text = "\n".join(lines)
-        self._append("system", text)
-        try:
-            self.model_text.delete("1.0", tk.END)
-            self.model_text.insert(tk.END, text)
-        except Exception:
-            pass
+        self._append("system", "\n".join(lines))
 
     def runtime_status(self) -> None:
         self.emit("runtime_status_requested", {"respond": True}, Priority.COGNITIVE)
@@ -1240,8 +1348,8 @@ class DesktopApp:
         self._show_selected_approval()
 
     def _show_selected_approval(self) -> None:
-        self.approval_detail.configure(state=tk.NORMAL)
-        self.approval_detail.delete("1.0", tk.END)
+        self.approval_detail.configure(state="normal")
+        self.approval_detail.delete("0.0", "end")
         pid = ""
         try:
             sel = self.approval_list.curselection()
@@ -1250,13 +1358,12 @@ class DesktopApp:
         except Exception:
             pass
         if pid and pid in self.pending_approvals:
-            self.approval_detail.insert(tk.END, repr(self.pending_approvals[pid]))
+            self.approval_detail.insert("end", repr(self.pending_approvals[pid]))
         else:
-            self.approval_detail.insert(tk.END, "No approval selected.")
-        self.approval_detail.configure(state=tk.DISABLED)
+            self.approval_detail.insert("end", "No approval selected.")
+        self.approval_detail.configure(state="disabled")
 
     def _run_helper_command(self, args: list[str], timeout: int = 30) -> str:
-        """Run a helper command in source or frozen mode and return combined output."""
         if getattr(sys, "frozen", False):
             root = Path(sys.executable).resolve().parent
             cmd = [sys.executable, *args]
@@ -1274,10 +1381,10 @@ class DesktopApp:
 
     def _set_voice_output(self, text: str) -> None:
         try:
-            self.voice_setup_output.configure(state=tk.NORMAL)
-            self.voice_setup_output.delete("1.0", tk.END)
-            self.voice_setup_output.insert(tk.END, text)
-            self.voice_setup_output.configure(state=tk.DISABLED)
+            self.voice_setup_output.configure(state="normal")
+            self.voice_setup_output.delete("0.0", "end")
+            self.voice_setup_output.insert("end", text)
+            self.voice_setup_output.configure(state="disabled")
         except Exception:
             self._append("system", text)
 
@@ -1351,7 +1458,7 @@ class DesktopApp:
                 cmd = [sys.executable, str(root / "main.py"), "--voice-ptt"] if push_to_talk else [sys.executable, str(root / "main.py"), "--voice"]
             self.voice_process = subprocess.Popen(cmd, cwd=str(root))
             mode = "push-to-talk" if push_to_talk else "continuous"
-            self._append("system", f"Voice process started in {mode} mode pid={self.voice_process.pid}. It runs as a separate process.")
+            self._append("system", f"Voice process started in {mode} mode pid={self.voice_process.pid}.")
         except Exception as exc:
             self._append("system", f"Could not start voice process: {exc}")
 
@@ -1360,7 +1467,6 @@ class DesktopApp:
 
     def _settings_saved(self, updates: Dict[str, str]) -> None:
         try:
-            # Make saved settings visible immediately to helpers that read os.environ.
             for key, value in (updates or {}).items():
                 os.environ[str(key)] = str(value)
             if self.kernel is None:
@@ -1374,7 +1480,6 @@ class DesktopApp:
                     actions.allow_shell = updates["ACTION_ALLOW_SHELL"].lower() == "true"
                 if "ACTIONS_V7_ENABLED" in updates:
                     actions.enabled = updates["ACTIONS_V7_ENABLED"].lower() == "true"
-            # Rebuild model router live when model/provider/API settings changed.
             if any(str(k).startswith(("MODEL_", "OLLAMA_", "OPENAI_", "GEMINI_", "ANTHROPIC_", "LLAMACPP_")) for k in updates):
                 try:
                     from config import LLMRouterConfig
@@ -1384,7 +1489,7 @@ class DesktopApp:
                     self._cached_model_status = self.kernel.llm_router.status(refresh=True)
                     if hasattr(self, "_model_panel"):
                         self._model_panel._update_from_status(self._cached_model_status)
-                    self._append("system", "Model settings saved and model router reloaded live. Run Models → Health Check to verify.")
+                    self._append("system", "Model settings saved and model router reloaded live.")
                     return
                 except Exception as exc:
                     self._append("system", f"Settings saved, but live model-router reload failed: {exc}")

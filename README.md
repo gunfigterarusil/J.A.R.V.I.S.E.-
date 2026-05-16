@@ -578,14 +578,32 @@ python main.py --desktop
 run_desktop.bat
 ```
 
-V18 Modern Assistant Shell має:
+V18.3 Modern Assistant Shell побудований на **customtkinter** — rounded widgets, native dark mode, Electron-like вигляд.
 
-- dark assistant dashboard;
-- HUD-індикатори `Kernel / Voice / Ambient / Models`;
-- статус-картки `System / Tasks / Approvals / Memory`;
-- покращений chat із timestamp;
-- швидкі сценарії `Diagnose / Screen / Models / Fix project / Research`;
-- вкладки `Home / Commands / Tasks / Approvals / Memory / Models / Events / Doctor / Voice / Logs`.
+Встановити залежність:
+
+```bash
+pip install customtkinter>=5.2
+```
+
+або разом із усіма залежностями:
+
+```bash
+pip install -r requirements.txt
+```
+
+Що є в інтерфейсі:
+
+- glassmorphism dark header із cyan accent і live HUD-chips `Kernel / Voice / Ambient / Models`;
+- статус-картки `Kernel / Models / Voice / Ambient / System / Tasks / Approvals / Memory`;
+- chat із кольоровими ролями (You / JAV / System), timestamp і "thinking…" анімацією;
+- швидкі сценарії `Diagnose / Screen / Models / Fix / Research`;
+- вкладки `Home / Cmd / Tasks / Appr / Mem / Models / Events / Doctor / Voice / Logs`;
+- Memory browser з пошуком по SQLite;
+- Approvals panel з detail preview;
+- Voice setup tab із звітами, тестами мікрофона і кнопками старт/стоп voice процесу;
+- Logs tab із фільтром `ALL / WARNING / ERROR / CRITICAL`;
+- безпечний запуск: GUI відкривається негайно, kernel завантажується у фоновому потоці.
 
 ---
 
@@ -624,7 +642,8 @@ Linux лаунчери:
 | Напрям | Статус |
 |---|---|
 | Kernel + module system | ✅ |
-| Desktop app | ✅ |
+| Desktop app (customtkinter) | ✅ |
+| Web UI (browser) | ✅ |
 | Chat mode | ✅ |
 | Voice STT/TTS | ✅ MVP |
 | Wake word | ✅ MVP |
@@ -738,7 +757,7 @@ python scripts/clean_build.py
 2. ще кращий installer/portable validation;
 3. Real Vision integration через vision model;
 4. Browser automation через Playwright/DOM;
-5. UI 2.0 на PySide6/Tauri, якщо Tkinter стане тісним;
+5. ~~UI 2.0~~ ✅ Desktop переписано на customtkinter (V18.3); Web UI отримав glassmorphism + нові панелі;
 6. Smart-home / Android / remote client.
 
 

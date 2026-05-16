@@ -278,6 +278,21 @@
 
         const goals = state.modules['goal_module'];
         if (goals) updateGoalsDisplay(goals);
+
+        const tts = state.modules['tts'];
+        if (tts) updateVoiceDisplay(tts);
+
+        const userProfile = state.modules['user_profile'];
+        if (userProfile) updateCompanionDisplay(userProfile);
+
+        const screen = state.modules['screen_parser'];
+        if (screen) updateAmbientDisplay(screen);
+
+        const sysmon = state.modules['system_monitor'];
+        if (sysmon) updateSystemDisplay(sysmon);
+
+        const selfModel = state.modules['self_model'];
+        if (selfModel) updateSelfModelDisplay(selfModel);
     }
 
     function updateEmotionDisplay(mod) {
@@ -316,24 +331,147 @@
     }
 
     function updateHormoneDisplay(mod) {
-        const hormones = ['dopamine', 'cortisol', 'oxytocin', 'serotonin'];
+        const hl = mod.hormone_levels || mod;
+        const hormones = ['dopamine', 'cortisol', 'oxytocin', 'serotonin', 'adrenaline'];
         hormones.forEach(h => {
-            const val = mod[h] != null ? mod[h] : 0.5;
+            const val = hl[h] != null ? hl[h] : 0.5;
             setBar(`bar-${h}`,  val * 100);
             setText(`val-${h}`, fmt.f2(val));
         });
     }
 
+    function updateVoiceDisplay(tts) {
+        const ring = $('wake-ring');
+        const icon = $('wake-icon');
+        const stateEl = $('wake-state');
+        const muted = tts.muted;
+        const enabled = tts.voice_enabled;
+        const backend = tts.active_backend || tts.backend_mode || '—';
+
+        if (ring) {
+            ring.classList.remove('state-listening', 'state-detected', 'state-muted');
+            if (!enabled) {
+                if (icon) icon.textContent = '🔇';
+                if (stateEl) stateEl.textContent = 'disabled';
+            } else if (muted) {
+                ring.classList.add('state-muted');
+                if (icon) icon.textContent = '🔇';
+                if (stateEl) stateEl.textContent = 'muted';
+            } else {
+                ring.classList.add('state-listening');
+                if (icon) icon.textContent = '👂';
+                if (stateEl) stateEl.textContent = 'listening';
+            }
+        }
+
+        setText('voice-muted', muted ? 'yes' : 'no');
+        setText('mod-backend', backend);
+
+        // Compute voice modulation from stored emotion+hormone state
+        const emotionMod = state.modules['emotion_module'] || {};
+        const hormoneMod = state.modules['hormone_module'] || {};
+        updateModulationBars(emotionMod, hormoneMod.hormone_levels || hormoneMod);
+    }
+
+    function updateModulationBars(e, h) {
+        const arousal       = e.arousal        != null ? e.arousal        : 0;
+        const valence       = e.valence        != null ? e.valence        : 0;
+        const frustration   = e.frustration    != null ? e.frustration    : 0;
+        const cogLoad       = e.cognitive_load != null ? e.cognitive_load : 0;
+        const cortisol      = h.cortisol       != null ? h.cortisol       : 0.2;
+        const oxytocin      = h.oxytocin       != null ? h.oxytocin       : 0.3;
+        const adrenaline    = h.adrenaline     != null ? h.adrenaline     : 0.1;
+
+        const speedDelta = arousal * 0.25 + frustration * 0.12 + (adrenaline - 0.1) * 0.30 - cogLoad * 0.10;
+        const speed = Math.max(0.70, Math.min(1.40, 1.0 + speedDelta));
+
+        const stabDelta = oxytocin * 0.20 - Math.abs(arousal) * 0.15 - cortisol * 0.10 + valence * 0.05;
+        const stab = Math.max(0.20, Math.min(0.95, 0.50 + stabDelta));
+
+        const speedPct = ((speed - 0.70) / 0.70) * 100;
+        const stabPct  = ((stab  - 0.20) / 0.75) * 100;
+
+        const speedFill = $('mod-speed-fill');
+        const stabFill  = $('mod-stab-fill');
+        if (speedFill) speedFill.style.width = `${speedPct.toFixed(1)}%`;
+        if (stabFill)  stabFill.style.width  = `${stabPct.toFixed(1)}%`;
+
+        setText('mod-speed-val', `${speed.toFixed(2)}×`);
+        setText('mod-stab-val',  stab.toFixed(2));
+
+        const badge = $('mod-badge');
+        if (badge) {
+            badge.textContent = 'ON';
+            badge.classList.add('on');
+        }
+    }
+
+    function updateAmbientDisplay(screen) {
+        const dot = $('ambient-dot');
+        const statusEl = $('ambient-status-text');
+        const intervalEl = $('ambient-interval');
+        const lastEl = $('ambient-last-event');
+
+        const active = screen.auto_watch_enabled || screen.ambient_watch_enabled || false;
+        if (dot) dot.classList.toggle('active', !!active);
+        if (statusEl) statusEl.textContent = active ? 'active' : 'inactive';
+
+        const interval = screen.ambient_interval;
+        if (intervalEl) intervalEl.textContent = interval ? `${interval}s` : '—';
+
+        const lastReason = screen.last_ambient_reason || screen.last_change_reason || '';
+        const lastWindow = screen.last_active_window || '';
+        if (lastEl && (lastReason || lastWindow)) {
+            lastEl.textContent = lastReason ? `${lastReason}${lastWindow ? ' — ' + lastWindow : ''}` : lastWindow;
+        }
+    }
+
+    function updateSystemDisplay(mod) {
+        const snap = mod.last_snapshot || {};
+        const cpu = snap.cpu_percent;
+        const ram = snap.memory?.used_percent;
+        const net = snap.internet;
+        setBar('bar-cpu', cpu ?? 0);
+        setText('val-cpu', cpu != null ? `${cpu.toFixed(0)}%` : '--%');
+        setBar('bar-ram', ram ?? 0);
+        setText('val-ram', ram != null ? `${ram.toFixed(0)}%` : '--%');
+        const dot = $('net-dot');
+        if (dot) dot.className = `net-dot ${net == null ? '' : (net ? 'online' : 'offline')}`;
+        setText('val-net', net == null ? '—' : (net ? 'online' : 'offline'));
+    }
+
+    function updateSelfModelDisplay(mod) {
+        setBar('bar-sm-confidence', (mod.confidence ?? 0.5) * 100);
+        setBar('bar-sm-reliability', (mod.reliability ?? 0.5) * 100);
+        setBar('bar-sm-autonomy', (mod.autonomy_level ?? 0.5) * 100);
+        setBar('bar-sm-maturity', (mod.cognitive_maturity ?? 0.5) * 100);
+        setBar('bar-sm-goalrate', (mod.goal_success_rate ?? 0) * 100);
+        setText('sm-role-text', mod.communication_style || mod.role || '—');
+    }
+
+    function updateCompanionDisplay(profile) {
+        const name = profile.name || profile.user_name || '';
+        const depth = profile.relationship_depth != null ? profile.relationship_depth : 0;
+        const note = profile.persona_notes || profile.adapted_style || '';
+
+        setText('companion-name', name || '—');
+        const relFill = $('companion-rel-fill');
+        if (relFill) relFill.style.width = `${Math.min(100, depth * 100).toFixed(0)}%`;
+        setText('companion-rel-val', `${Math.round(depth * 100)}%`);
+        if (note) setText('companion-note', note);
+    }
+
     function updateGoalsDisplay(mod) {
-        const goals = mod.active_goals || mod.goals || [];
+        const goals = mod.active_stack || mod.active_goals || mod.goals || [];
         if (!els.goalsList) return;
         if (!goals.length) {
             els.goalsList.innerHTML = '<span class="text-muted">No active goals</span>';
             return;
         }
         els.goalsList.innerHTML = goals.slice(0, 5).map(g => {
-            const desc = typeof g === 'string' ? g : (g.description || g.name || JSON.stringify(g));
-            return `<div class="goal-item">${escapeHtml(desc)}</div>`;
+            const desc = typeof g === 'string' ? g : (g.description || g.name || '?');
+            const prio = g.priority != null ? `<span class="goal-prio">${escapeHtml(String(g.priority))}</span>` : '';
+            return `<div class="goal-item">${prio}${escapeHtml(desc)}</div>`;
         }).join('');
     }
 
@@ -375,9 +513,17 @@
 
             // Chat-relevant events
             switch (evt.type) {
-                case 'response_generated':
+                case 'user_utterance': {
+                    const th = $('chat-thinking');
+                    if (th) th.style.display = 'flex';
+                    break;
+                }
+                case 'response_generated': {
+                    const th = $('chat-thinking');
+                    if (th) th.style.display = 'none';
                     appendChatMsg('bot', evt.data?.text || '', evt.data?.mode);
                     break;
+                }
                 case 'internal_monologue':
                     appendMonologueToStream(evt.data?.text || '');
                     appendChatMsg('monologue', evt.data?.text || '');
@@ -395,6 +541,62 @@
                     state.imaginationActive = false;
                     if (els.imaginationDot) els.imaginationDot.classList.remove('active');
                     break;
+                case 'tts_status': {
+                    const ring = $('wake-ring');
+                    const icon = $('wake-icon');
+                    const stEl = $('wake-state');
+                    if (!ring) break;
+                    ring.classList.remove('state-listening', 'state-detected', 'state-muted');
+                    if (evt.data?.muted) {
+                        ring.classList.add('state-muted');
+                        if (icon) icon.textContent = '🔇';
+                        if (stEl) stEl.textContent = 'muted';
+                    } else if (evt.data?.voice_enabled) {
+                        ring.classList.add('state-listening');
+                        if (icon) icon.textContent = '👂';
+                        if (stEl) stEl.textContent = 'listening';
+                    }
+                    setText('voice-muted', evt.data?.muted ? 'yes' : 'no');
+                    setText('mod-backend', evt.data?.active_backend || '—');
+                    break;
+                }
+                case 'wake_word_detected': {
+                    const ring = $('wake-ring');
+                    const icon = $('wake-icon');
+                    const stEl = $('wake-state');
+                    if (ring) {
+                        ring.classList.remove('state-listening', 'state-muted');
+                        ring.classList.add('state-detected');
+                        if (icon) icon.textContent = '⚡';
+                        if (stEl) stEl.textContent = 'detected';
+                        setTimeout(() => {
+                            ring.classList.remove('state-detected');
+                            ring.classList.add('state-listening');
+                            if (icon) icon.textContent = '👂';
+                            if (stEl) stEl.textContent = 'listening';
+                        }, 2000);
+                    }
+                    break;
+                }
+                case 'proactive_event': {
+                    const lastEl = $('ambient-last-event');
+                    if (lastEl && evt.data) {
+                        const reason = evt.data.reason || '';
+                        const win = evt.data.active_window || '';
+                        lastEl.textContent = `${reason}${win ? ' — ' + win : ''}`;
+                    }
+                    break;
+                }
+                case 'proactive_notification': {
+                    if (evt.data) {
+                        showProactiveToast(
+                            evt.data.title || 'Jarvis',
+                            evt.data.text  || evt.data.detail || '',
+                            evt.data.severity || 'info',
+                        );
+                    }
+                    break;
+                }
             }
         });
     }
@@ -463,13 +665,20 @@
             const modeHtml = modeName
                 ? `<span class="msg-mode mode-${modeName}">${escapeHtml(modeName)}</span>` : '';
             row.innerHTML = `
-                <div>
+                <div class="msg-body">
                     <div class="msg-bubble">${escapeHtml(text)}</div>
                     <div class="msg-meta">
                         <span class="msg-time">${timeStr}</span>
                         ${modeHtml}
+                        <button class="msg-copy-btn" title="Copy message">⎘</button>
                     </div>
                 </div>`;
+            row.querySelector('.msg-copy-btn').addEventListener('click', function () {
+                navigator.clipboard.writeText(text).then(() => {
+                    this.textContent = '✓';
+                    setTimeout(() => { this.textContent = '⎘'; }, 1400);
+                }).catch(() => {});
+            });
         }
 
         els.chatMessages.appendChild(row);
@@ -486,6 +695,8 @@
         ws.send({ action: 'chat', text });
         els.chatInput.value = '';
         els.chatInput.style.height = 'auto';
+        const th = $('chat-thinking');
+        if (th) th.style.display = 'flex';
     }
 
     // ---------------------------------------------------------------------------
@@ -587,6 +798,45 @@
     // ---------------------------------------------------------------------------
     function emitEvent(body) {
         api.post('/api/event/emit', body).catch(e => console.error(e));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Proactive notification toast
+    // ---------------------------------------------------------------------------
+    const _activeToasts = new Set();
+
+    function showProactiveToast(title, text, severity) {
+        if (!text && !title) return;
+        const container = document.querySelector('.app-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = `proactive-toast toast-${severity}`;
+        toast.innerHTML = `
+            <div class="toast-header">
+                <span class="toast-icon">${severity === 'critical' ? '🔴' : severity === 'warning' ? '⚠️' : '💡'}</span>
+                <span class="toast-title">${escapeHtml(title)}</span>
+                <button class="toast-close" title="Dismiss">&times;</button>
+            </div>
+            ${text ? `<div class="toast-body">${escapeHtml(text)}</div>` : ''}`;
+
+        container.appendChild(toast);
+        _activeToasts.add(toast);
+
+        const remove = () => {
+            toast.classList.add('toast-hiding');
+            setTimeout(() => { toast.remove(); _activeToasts.delete(toast); }, 300);
+        };
+        toast.querySelector('.toast-close').onclick = remove;
+        const timer = setTimeout(remove, 9000);
+        toast.addEventListener('mouseenter', () => clearTimeout(timer));
+        toast.addEventListener('mouseleave', () => setTimeout(remove, 3000));
+
+        // Cap at 3 simultaneous toasts
+        if (_activeToasts.size > 3) {
+            const oldest = _activeToasts.values().next().value;
+            if (oldest) { oldest.remove(); _activeToasts.delete(oldest); }
+        }
     }
 
     // ---------------------------------------------------------------------------

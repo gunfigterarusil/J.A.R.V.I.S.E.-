@@ -43,6 +43,7 @@ class SelfLearningModule(CognitiveModule):
             "adaptability": 0.50,
         }
         self._adjustment_log: List[Dict[str, Any]] = []
+        self._prev_heuristics: Dict[str, float] = dict(self._heuristics)
 
     def initialize(self, kernel) -> None:
         super().initialize(kernel)
@@ -94,6 +95,14 @@ class SelfLearningModule(CognitiveModule):
             if abs(delta) > 0.01 and self.kernel:
                 self.kernel.event_bus.emit(
                     Event(type="weight_adjusted", data={"heuristic": name, "old": old_val, "new": new_val}),
+                    Priority.BACKGROUND,
+                )
+            # Emit full heuristics snapshot when any value drifts >0.05 from last broadcast.
+            if any(abs(self._heuristics.get(k, 0) - self._prev_heuristics.get(k, 0)) >= 0.05
+                   for k in self._heuristics) and self.kernel:
+                self._prev_heuristics = dict(self._heuristics)
+                self.kernel.event_bus.emit(
+                    Event(type="heuristics_updated", data=dict(self._heuristics)),
                     Priority.BACKGROUND,
                 )
 

@@ -1,0 +1,49 @@
+{
+  "version": "V9.5",
+  "reason": "periodic",
+  "timestamp": 1778909390.5220466,
+  "pid": 10064,
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.10",
+  "service_mode": false,
+  "uptime_seconds": 65.21,
+  "kernel_running": true,
+  "module_count": 29,
+  "safety_level": 1,
+  "data_dir": "C:\\AI\\JAV_v17_voice_companion_mode\\jav_full_restore\\data\\brain",
+  "data_dir_exists": true,
+  "workspace": "C:\\AI\\1",
+  "workspace_exists": true,
+  "heartbeat_file": "data\\brain\\runtime_heartbeat.json",
+  "recent_error_count": 0,
+  "recent_errors": [],
+  "kind": "health",
+  "checks": [
+    {
+      "name": "kernel_running",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "name": "modules_loaded",
+      "ok": true,
+      "detail": "29"
+    },
+    {
+      "name": "data_dir",
+      "ok": true,
+      "detail": "C:\\AI\\JAV_v17_voice_companion_mode\\jav_full_restore\\data\\brain"
+    },
+    {
+      "name": "workspace",
+      "ok": true,
+      "detail": "C:\\AI\\1"
+    },
+    {
+      "name": "recent_errors",
+      "ok": true,
+      "detail": "0"
+    }
+  ],
+  "ok": true
+}
